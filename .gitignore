@@ -30,3 +30,6 @@ tests/.*.html
 # repository is public. Attach them to an issue instead, cropped to the part
 # that shows the problem.
 assets/bug-reports/
+
+# Local assistant notes, not part of the project.
+CLAUDE.md

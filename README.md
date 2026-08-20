@@ -163,6 +163,13 @@ The file is unminified on purpose. You are being asked to paste a script into an
 app you read in — you should be able to read it first, and `tools/check.mjs`
 enforces the properties that make that audit meaningful.
 
+## Status
+
+**Not ready to install yet.** Three bugs found in real use are still open, two of
+them blockers. What is known about each — measured device facts, root causes
+where they are established, and what has already been tried and failed — is
+written down in **[BUGS.md](BUGS.md)**.
+
 ## Contributing
 
 Yes please. See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
