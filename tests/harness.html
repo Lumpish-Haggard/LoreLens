@@ -275,6 +275,28 @@ function run() {
   m2.lastIndex = 0;
   notOk(m2.test('Taoism'), 'does not match inside a longer word');
 
+  /*
+    The worst bug this project has had. A failed lookup used to strike a name
+    out of the matcher. Once the wiki was unreachable — a wrong subdomain is
+    enough — enough names were struck out that the matcher matched nothing, every
+    mark in the chapter vanished, and the recovery pass re-derived the same
+    rejected names and produced nothing, every three seconds, until the novel was
+    closed and reopened. Whether a wiki has an article is not what decides
+    whether a name is a name.
+  */
+  const rejectIndex = new I.EntityIndex();
+  rejectIndex.add({ name: 'Gu Changge', aliases: [], entity: null, confidence: I.CONFIDENCE.CONFIRMED });
+  rejectIndex.add({ name: 'Yue Mingkong', aliases: [], entity: null, confidence: I.CONFIDENCE.CONFIRMED });
+  rejectIndex.reject('Gu Changge');
+  rejectIndex.reject('Yue Mingkong');
+
+  const afterReject = rejectIndex.buildMatcher();
+  ok(afterReject !== null, 'rejecting every term still leaves a usable matcher');
+  afterReject.lastIndex = 0;
+  ok(afterReject.test('Gu Changge walked'), 'a rejected name is still matched in the text');
+  is(rejectIndex.confidenceOf('Gu Changge'), I.CONFIDENCE.GUESSED,
+    'but it is demoted to a guess, so it is drawn more quietly');
+
   /* ------------------------------------------------------------- infobox */
 
   section('infobox parsing');
@@ -647,6 +669,38 @@ function run() {
   notOk(I.RealmsGuide.isWorldLevelPage('Xiao Yan/Cultivation'),
     'a character subpage is not the world power system');
   notOk(I.RealmsGuide.isWorldLevelPage('Category:Cultivation'), 'a category is not an article');
+
+  /*
+    The shape that produced a ladder reading "1 Rank / 2 Pinyin / 3 Peak Dou
+    Zun" on a real wiki: a header row whose cells are ordinary <td>, a small
+    summary table before the real one, and a notice paragraph at the top.
+  */
+  const headerTablePage =
+    '<div class="mw-parser-output">' +
+    '<p>This article is based on the Official Translations of the Web Novel series!</p>' +
+    '<h2>Cultivation</h2>' +
+    '<table><tr><td>Rank</td><td>Pinyin</td></tr>' +
+    '<tr><td>Peak Dou Zun</td><td>a</td></tr>' +
+    '<tr><td>Ban Sheng</td><td>b</td></tr>' +
+    '<tr><td>Half Step Dou Di</td><td>c</td></tr></table>' +
+    '<table><tr><th>Level</th><th>Chapter</th></tr>' +
+    '<tr><td>Dou Zhe</td><td>1</td></tr>' +
+    '<tr><td>Dou Shi</td><td>65</td></tr>' +
+    '<tr><td>Da Dou Shi</td><td>159</td></tr>' +
+    '<tr><td>Dou Ling</td><td>331</td></tr>' +
+    '<tr><td>Dou Wang</td><td>521</td></tr></table>' +
+    '</div>';
+
+  const headerLadder = I.RealmsGuide.parseLadder(headerTablePage);
+  notOk(headerLadder.indexOf('Rank') >= 0, 'a column label is not a cultivation level');
+  notOk(headerLadder.indexOf('Pinyin') >= 0, 'nor is "Pinyin"');
+  notOk(headerLadder.indexOf('Level') >= 0, 'nor is a <th> header cell');
+  ok(headerLadder.indexOf('Dou Wang') >= 0, 'the larger table wins over an earlier small one');
+  is(headerLadder.length, 5, 'and yields exactly its five data rows');
+
+  const introText = I.RealmsGuide.parseIntro(headerTablePage);
+  is(introText.indexOf('Official Translations'), -1,
+    'the editorial notice is not used to introduce the ladder');
 
   is(I.RealmsGuide.rungText('7-Star'), '7-Star', 'an unspaced dash is part of the name');
   is(I.RealmsGuide.rungText('Qi Refining — the first steps'), 'Qi Refining', 'a spaced dash cuts a description');

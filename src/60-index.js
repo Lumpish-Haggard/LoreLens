@@ -80,11 +80,30 @@
       }
     }
 
-    /** Remember that a term has no article, so we stop offering it. */
+    /**
+     * Remember that looking this term up did not produce an article.
+     *
+     * Note what this does NOT do: it does not remove the term from the matcher.
+     * It used to, and that was the single worst bug in this project. A failed
+     * lookup would strike a name out of the matcher; enough failures — which is
+     * what happens the moment the wiki is unreachable or the subdomain is wrong
+     * — and the matcher matched nothing, every mark in the chapter vanished,
+     * and the recovery pass re-derived the same rejected terms and produced
+     * nothing, over and over.
+     *
+     * A name in the text is worth marking whether or not a wiki documents it.
+     * All this now does is drop the term's confidence so it is drawn as a
+     * guess, and record that prefetching it again is not worth the request.
+     */
     reject(term) {
       const key = foldKey(term);
       const existing = this.byKey.get(key);
-      if (existing) existing.isRejected = true;
+      if (!existing) return;
+      existing.isRejected = true;
+      if (existing.confidence > CONFIDENCE.GUESSED) {
+        existing.confidence = CONFIDENCE.GUESSED;
+        this.isStale = true;
+      }
     }
 
     lookup(term) {
@@ -105,9 +124,12 @@
     buildMatcher() {
       if (!this.isStale && this.matcher !== undefined) return this.matcher;
 
+      /* Every known term goes in, including ones whose lookup came back empty.
+       * Whether a wiki has an article is not what decides if a name is a name,
+       * and letting lookups shrink this list is how the chapter ends up with no
+       * marks at all. */
       const terms = [];
       for (const record of this.byKey.values()) {
-        if (record.isRejected) continue;
         terms.push(record.display);
       }
 

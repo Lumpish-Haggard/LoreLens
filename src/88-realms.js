@@ -37,6 +37,17 @@
   const NOT_A_RANK =
     /^(references?|gallery|trivia|see also|notes?|navigation|contents?|external links?|sources?|categories|appearances?|images?|videos?|quotes?)$/i;
 
+  /**
+   * Words that name a column rather than a cultivation level.
+   *
+   * A table's header row is normally all <th> and is skipped structurally, but
+   * plenty of wiki tables mark their header cells as ordinary <td>, or repeat a
+   * header partway down. Without this, a ladder comes back reading "Rank",
+   * "Pinyin", "Chapter" — which is exactly what one real page produced.
+   */
+  const COLUMN_LABELS =
+    /^(rank|level|levels|stage|stages|realm|realms|tier|name|names|title|chapter|chapters|manhua|donghua|anime|manga|novel|age|details|description|notes?|pinyin|romaji|chinese|japanese|korean|english|translation|class|grade|type|requirements?|abilit(y|ies)|power|strength|no\.?|#)$/i;
+
   class RealmsGuide {
     constructor(options) {
       this.wiki = options.wiki;
@@ -198,15 +209,28 @@
       }
     }
 
+    /**
+     * The first paragraph that actually describes the system.
+     *
+     * Skips the notices a wiki addresses to its readers and editors — the same
+     * filter the entity summaries use, for the same reason: on one real wiki
+     * every page opens with a note about translation policy, and without this
+     * the ladder was introduced by it.
+     */
     static parseIntro(html) {
       const parsed = RealmsGuide.parseDocument(html);
       if (!parsed) return '';
       const body = parsed.querySelector('.mw-parser-output') || parsed.body;
       if (!body) return '';
-      const paragraphs = body.querySelectorAll('p');
-      for (const paragraph of Array.prototype.slice.call(paragraphs)) {
-        const text = stripWikiHtml(paragraph.innerHTML || '');
-        if (text.length > 40) return splitSentences(text).slice(0, 2).join(' ');
+
+      for (const paragraph of Array.prototype.slice.call(body.querySelectorAll('p'))) {
+        const text = cleanExtract(stripWikiHtml(paragraph.innerHTML || ''));
+        if (text.length <= 40) continue;
+
+        const sentences = splitSentences(text).filter(function (sentence) {
+          return !isEditorialNotice(sentence);
+        });
+        if (sentences.length > 0) return sentences.slice(0, 2).join(' ');
       }
       return '';
     }
@@ -344,23 +368,49 @@
      * Progression tables are usually a row per sub-step — nine stages of each
      * of ten realms — with the realms themselves as numbered rows between them.
      * When that pattern is there, those numbered rows are the ladder and the
-     * hundred sub-steps are noise.
+     * sub-steps are noise.
+     *
+     * Two things this has to get right, both learned the hard way from a real
+     * page. A table's header row is not a rung: reading it produced a ladder
+     * whose first two levels were "Rank" and "Pinyin". And the first table on a
+     * page is not necessarily the ladder — an article can open with a small
+     * summary table and carry the real one further down — so every table is
+     * considered and the one yielding the most rungs wins.
      */
     static fromTable(nodes) {
       const tables = RealmsGuide.collect(nodes, 'table');
-      if (tables.length === 0) return [];
+      let best = [];
 
-      const firstCells = [];
-      for (const row of Array.prototype.slice.call(tables[0].querySelectorAll('tr'))) {
-        const cell = row.querySelector('td, th');
-        if (!cell) continue;
-        firstCells.push((cell.textContent || '').replace(/\s+/g, ' ').trim());
+      for (const table of tables) {
+        const cells = RealmsGuide.firstColumnOf(table);
+        const numbered = cells.filter(function (text) {
+          return /^\d{1,2}[.)]\s*\S/.test(text);
+        });
+        const candidate = numbered.length >= 3 ? numbered : cells;
+        if (candidate.length > best.length) best = candidate;
       }
+      return best;
+    }
 
-      const numbered = firstCells.filter(function (text) {
-        return /^\d{1,2}[.)]\s*\S/.test(text);
-      });
-      return numbered.length >= 3 ? numbered : firstCells;
+    /** The first cell of every data row, skipping header rows entirely. */
+    static firstColumnOf(table) {
+      const out = [];
+      for (const row of Array.prototype.slice.call(table.querySelectorAll('tr'))) {
+        const cells = Array.prototype.slice.call(row.children || []);
+        if (cells.length === 0) continue;
+
+        /* A row made only of <th> is the header. Its cells name the columns —
+         * "Rank", "Chapter", "Pinyin" — not the things in them. */
+        const isHeaderRow = cells.every(function (cell) {
+          return (cell.tagName || '').toLowerCase() === 'th';
+        });
+        if (isHeaderRow) continue;
+
+        const text = (cells[0].textContent || '').replace(/\s+/g, ' ').trim();
+        if (!text || COLUMN_LABELS.test(text)) continue;
+        out.push(text);
+      }
+      return out;
     }
 
     static textsOf(nodes) {

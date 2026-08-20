@@ -405,8 +405,14 @@
         hyphenated + '-novel',
       ];
 
-      /* Initialisms work surprisingly often for long titles. */
-      if (words.length >= 3) {
+      /*
+       * An initialism, but only for a title short enough that one is plausible.
+       * "Battle Through The Heavens" gives "btth", which is a real wiki. A long
+       * title gives a string like "fbsgaoylsmatb", which is not a wiki and
+       * never will be — it is a guaranteed-failing request on every chapter,
+       * and observed in the wild costing exactly that.
+       */
+      if (words.length >= 3 && words.length <= 5) {
         candidates.push(words.map(function (word) {
           return word[0];
         }).join(''));

@@ -24,6 +24,8 @@
       this.isScanning = false;
       this.pendingRescan = false;
       this.scanStartedAt = 0;
+      this.healAttempts = 0;
+      this.bootCount = 0;
     }
 
     /* ------------------------------------------------------------- startup */
@@ -267,8 +269,26 @@
      */
     revalidateHighlights() {
       if (!this.settings.get('enabled') || !this.highlighter) return;
-      if (this.highlighter.isStillPainted(this.context.root)) return;
-      log('marks went missing; re-running');
+      if (this.highlighter.isStillPainted(this.context.root)) {
+        this.healAttempts = 0;
+        return;
+      }
+
+      /* Bounded, because an unbounded version of this made a bad bug far
+       * worse: when marking could not succeed at all, this re-ran every three
+       * seconds for as long as the chapter was open, re-detecting, re-matching
+       * and re-requesting each time. If a few attempts have not fixed it,
+       * something is wrong that repetition will not solve, and continuing to
+       * try is just a drain on the battery. */
+      this.healAttempts += 1;
+      if (this.healAttempts > 3) {
+        if (this.healAttempts === 4) {
+          log('marks still missing after 3 attempts; leaving it alone');
+        }
+        return;
+      }
+
+      log('marks went missing; re-running (attempt ' + this.healAttempts + ')');
       this.scan();
     }
 
@@ -408,12 +428,27 @@
         }
         const term = targets[position].phrase;
         position += 1;
+
+        /* A rise in the client's failure count means the request itself did not
+         * complete — no DNS, no network, blocked. That says nothing at all
+         * about whether the wiki has an article, and must not be allowed to
+         * change how the name is drawn. Only a request that came back and said
+         * "no such page" is evidence about the name. */
+        const failuresBefore = self.wiki.failures;
+
         self.fetchEntity(term).then(function (entity) {
+          const requestFailed = self.wiki.failures > failuresBefore;
           if (entity) {
             self.writeCachedEntity(term, entity);
             self.index.resolve(term, entity);
-          } else {
+          } else if (!requestFailed) {
             self.index.reject(term);
+          }
+          if (requestFailed) {
+            /* The wiki is not answering. Stop pestering it for the rest of the
+             * chapter rather than working through the whole list. */
+            log('prefetch stopped: the wiki is not reachable');
+            return;
           }
           whenIdle(next);
         });
