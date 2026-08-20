@@ -1,0 +1,23 @@
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Local lorepacks — these are personal, per-novel, and often large.
+# Share them via a Gist or Release, not the repo.
+*.lorepack.json
+!example.lorepack.json
+!tests/fixtures/*.lorepack.json
+
+# Test + build output
+tests/.out/
+.chrome-profile/
+
+# Editors / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+desktop.ini

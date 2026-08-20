@@ -1,0 +1,51 @@
+name: Release
+
+# Tag a commit v2.1.0 and push the tag to cut a release:
+#   git tag v2.1.0 && git push origin v2.1.0
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build and verify
+        run: |
+          node tools/build.mjs
+          node tools/check.mjs
+          node tests/run.mjs
+
+      - name: Check the tag matches the version in the source
+        run: |
+          TAG="${GITHUB_REF_NAME#v}"
+          SRC=$(node -e "const m=require('fs').readFileSync('dist/lorelens.js','utf8').match(/VERSION\s*=\s*'([^']+)'/);process.stdout.write(m?m[1]:'')")
+          if [ "$TAG" != "$SRC" ]; then
+            echo "::error::Tag is v$TAG but src says $SRC. Update VERSION in src/10-constants.js."
+            exit 1
+          fi
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/lorelens.js
+          generate_release_notes: true
+          body: |
+            ## Install
+
+            Download **`lorelens.js`** below, open it in any text editor, copy all
+            of it, and paste it into your reader's custom JavaScript setting.
+
+            Full instructions: [docs/INSTALL.md](https://github.com/${{ github.repository }}/blob/main/docs/INSTALL.md)
+
+            Already have an older version installed? Replace the whole thing.
+            Your settings live in the reader's storage and will survive the update.

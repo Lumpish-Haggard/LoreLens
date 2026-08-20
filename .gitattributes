@@ -1,0 +1,12 @@
+# Normalise to LF everywhere.
+#
+# This is not a style preference. CI rebuilds dist/lorelens.js and fails the
+# run if the result differs from what was committed, so if Windows checkouts
+# got CRLF and the Linux runner produced LF, every pull request from a Windows
+# contributor would fail a check that has nothing to do with their change.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.gif binary
+*.webp binary

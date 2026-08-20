@@ -1,0 +1,70 @@
+{
+  "_comment": [
+    "An example custom glossary. You do not need one of these to use LoreLens —",
+    "it fetches from the wiki live. This is for novels whose wiki is thin, or",
+    "translations that use different names, or for sharing a spoiler-safe",
+    "glossary with other readers.",
+    "",
+    "Host it anywhere that serves it over https and paste the URL into LoreLens",
+    "settings under 'Custom glossary'. Fields not listed here are ignored.",
+    "",
+    "Generate a starting point with:",
+    "  node tools/build-lorepack.mjs --wiki <subdomain> --limit 40"
+  ],
+
+  "schemaVersion": 2,
+  "source": "hand-written",
+  "generatedAt": "2026-08-20T00:00:00.000Z",
+
+  "entities": [
+    {
+      "name": "Gu Changge",
+
+      "aliases": ["Young Master Gu", "The Fated Villain"],
+
+      "native": "顾长歌",
+      "romanized": "Gù Chánggē",
+
+      "image": "https://static.wikia.nocookie.net/example/images/gu.png",
+      "url": "https://example.fandom.com/wiki/Gu_Changge",
+
+      "_note_tags": "kind 'fate' marks a tag that gives away whether someone is still alive. LoreLens hides those behind a tap by default — it is the single most useful thing this file can tell it. tone is one of: good, bad, accent, neutral.",
+      "tags": [
+        { "label": "Gu Family", "tone": "accent", "kind": "plain" },
+        { "label": "Great Sacred Realm", "tone": "accent", "kind": "progress" },
+        { "label": "Alive", "tone": "good", "kind": "fate" }
+      ],
+
+      "sections": [
+        {
+          "title": "Who this is",
+          "body": "Heir to the Gu family and the antagonist the story follows. Ruthless, unhurried, and several steps ahead of everyone who has noticed him.",
+
+          "_note": "alwaysSafe means this stays visible even with the spoiler guard on. Use it only for text that is safe at any point in the book.",
+          "alwaysSafe": true
+        },
+        {
+          "title": "More",
+          "body": "In Chapter 900 he finally moves against the Immortal Court. Sentences that name a chapter are hidden automatically until the reader has got that far, so you can write freely here.",
+          "alwaysSafe": false
+        }
+      ],
+
+      "_note": "firstSeen lets LoreLens say 'this character has not appeared yet' instead of showing anything at all.",
+      "firstSeen": 1
+    },
+
+    {
+      "name": "River of Time",
+      "aliases": [],
+      "tags": [{ "label": "Location", "tone": "neutral", "kind": "plain" }],
+      "sections": [
+        {
+          "title": "Who this is",
+          "body": "Entries do not have to be people. Places, techniques, sects, artefacts and cultivation ranks all work the same way.",
+          "alwaysSafe": true
+        }
+      ]
+    }
+  ]
+}

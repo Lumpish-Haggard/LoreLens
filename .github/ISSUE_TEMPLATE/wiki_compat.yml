@@ -1,0 +1,52 @@
+name: Wiki compatibility
+description: LoreLens works, but gives wrong or empty results for a particular wiki
+labels: ["wiki-compat", "good first issue"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        These are usually a two-line fix — a wiki that labels its infobox fields
+        differently from the ones we know about. You do not need to write any code
+        to file this, and it is a great issue for a first-time contributor to pick up.
+
+  - type: input
+    id: wiki
+    attributes:
+      label: Wiki URL
+      placeholder: "https://reverend-insanity.fandom.com"
+    validations:
+      required: true
+
+  - type: input
+    id: article
+    attributes:
+      label: An article that comes out wrong
+      placeholder: "https://reverend-insanity.fandom.com/wiki/Fang_Yuan"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What is wrong
+      multiple: true
+      options:
+        - No entry found at all
+        - Summary is empty
+        - Summary is the wrong article
+        - No portrait image
+        - Missing tags (status / race / affiliation)
+        - Tags show the wrong thing
+        - Alternate names are not recognised in the text
+        - Native-script name missing or wrong
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What it should show
+      description: >
+        If the problem is a missing tag, tell us the label the wiki uses for it —
+        look at the infobox on the article page, e.g. it says "Standing" where most
+        wikis say "Status".

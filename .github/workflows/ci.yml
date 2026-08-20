@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# A PR from a fork gets read-only access. Nothing here needs more than that.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: dist is in sync with src
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Rebuild dist/
+        run: node tools/build.mjs
+
+      - name: Fail if dist/ was not committed
+        run: |
+          if ! git diff --quiet -- dist/; then
+            echo "::error::dist/lorelens.js does not match src/. Run 'npm run build' and commit the result."
+            git diff --stat -- dist/
+            git diff -- dist/ | head -100
+            exit 1
+          fi
+          echo "dist/ is in sync."
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: lorelens-js
+          path: dist/lorelens.js
+          if-no-files-found: error
+
+  test:
+    name: Test suite (headless Chrome)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build
+        run: node tools/build.mjs
+
+      - name: Run tests
+        run: node tests/run.mjs
+
+  checks:
+    name: Source constraints
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build
+        run: node tools/build.mjs
+
+      # The output is pasted by hand into a phone app. These are the properties
+      # that have to hold for that to be safe, so they are enforced, not trusted.
+      - name: Check source constraints
+        run: node tools/check.mjs
+
+      - name: Syntax check the built file
+        run: node --check dist/lorelens.js

@@ -1,0 +1,26 @@
+{
+  "name": "lorelens",
+  "version": "2.0.0",
+  "description": "Tap a character's name while reading and get their wiki entry, spoiler-safe, without leaving the chapter.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "scripts": {
+    "build": "node tools/build.mjs",
+    "check": "node tools/check.mjs",
+    "test": "node tools/build.mjs && node tests/run.mjs",
+    "lorepack": "node tools/build-lorepack.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "keywords": [
+    "lnreader",
+    "light-novel",
+    "webnovel",
+    "fandom",
+    "wiki",
+    "userscript",
+    "reader"
+  ]
+}

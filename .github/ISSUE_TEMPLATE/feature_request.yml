@@ -1,0 +1,28 @@
+name: Feature request
+description: Suggest something LoreLens should do
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do
+      description: >
+        Describe the reading situation, not the solution. "I keep forgetting which
+        sect someone belongs to" tells us more than "add a sect field".
+    validations:
+      required: true
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: What you have in mind
+      description: Optional. A rough idea of how it might work.
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Reality check
+      description: LoreLens runs inside a phone reading app, pasted in as one file. That rules some things out.
+      options:
+        - label: This does not need a server, an account, or an API key
+        - label: This does not require the user to prepare data before reading

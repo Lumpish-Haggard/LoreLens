@@ -1,0 +1,12 @@
+# LoreLens has no runtime dependencies, so this only keeps the CI actions
+# themselves current. That still matters — stale actions break builds.
+version: 2
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "monthly"
+    commit-message:
+      prefix: "chore"
+    labels:
+      - "chore"

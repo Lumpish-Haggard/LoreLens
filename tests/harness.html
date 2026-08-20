@@ -1,0 +1,478 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>LoreLens test suite</title>
+<style>
+  body { font: 14px/1.5 ui-monospace, Menlo, Consolas, monospace; margin: 0; background: #111; color: #ddd; }
+  #chapter-host { padding: 16px 20px; background: #14161a; color: #d6d6d6; max-width: 40em; }
+  #out { padding: 16px 20px; white-space: pre-wrap; }
+  .pass { color: #5fcf8c; }
+  .fail { color: #ff7b72; font-weight: 700; }
+  .summary { font-size: 16px; font-weight: 700; padding: 12px 20px; border-top: 1px solid #333; }
+</style>
+</head>
+<body>
+
+<!--
+  The fake chapter. This is the reader's DOM as far as LoreLens is concerned,
+  and it deliberately includes the shapes that have caused bugs: a name inside a
+  link, a name in a code block, a name that only ever appears sentence-initial,
+  and a name that appears exactly once.
+-->
+<div id="chapter-host">
+  <div id="LNReader-chapter">
+    <h2>Chapter 412 - The River of Time</h2>
+    <p>Gu Changge stood at the edge of the River of Time, watching the current fold back on itself.</p>
+    <p>Chan Hongyi and Tao Yao could be seen in different segments of that river. Gu Changge did not interfere.</p>
+    <p>Young Master Gu smiled. <a href="#nowhere">Gu Changge</a> inside a link must never be marked.</p>
+    <p>However, the young master noticed Yue Mingkong watching him. Yue Mingkong said nothing at all.</p>
+    <p>Suddenly the Immortal Ascension Ritual began. The Immortal Ascension Ritual had waited an age.</p>
+    <p><code>Gu Changge</code> inside code must never be marked either.</p>
+    <p>Ling Xian appeared only this once, so a cautious detector should leave it alone.</p>
+  </div>
+</div>
+
+<pre id="out"></pre>
+<div class="summary" id="summary">running…</div>
+
+<script>
+/* ---------------------------------------------------------------- harness */
+
+window.__results = { passed: 0, failed: 0, lines: [] };
+
+function record(ok, name, detail) {
+  const results = window.__results;
+  if (ok) {
+    results.passed += 1;
+    results.lines.push('  ok   ' + name);
+  } else {
+    results.failed += 1;
+    results.lines.push('  FAIL ' + name + (detail ? '\n         ' + detail : ''));
+  }
+}
+
+function is(actual, expected, name) {
+  record(actual === expected, name, 'expected ' + JSON.stringify(expected) + ', got ' + JSON.stringify(actual));
+}
+function ok(value, name, detail) {
+  record(Boolean(value), name, detail || 'expected truthy, got ' + JSON.stringify(value));
+}
+function notOk(value, name) {
+  record(!value, name, 'expected falsy, got ' + JSON.stringify(value));
+}
+function section(title) {
+  window.__results.lines.push('\n' + title);
+}
+
+/* ------------------------------------------------------------- fixtures -- */
+
+/*
+  A rendered Fandom article, trimmed to the parts the parser cares about. The
+  class names here are Fandom's portable-infobox markup.
+*/
+window.__fixtureArticleHtml = [
+  '<div class="mw-parser-output">',
+  '<aside class="portable-infobox pi-background">',
+  '<h2 class="pi-item pi-title">Gu Changge</h2>',
+  '<figure class="pi-item pi-image">',
+  '<a href="#"><img src="https://static.wikia.nocookie.net/example/images/a/gu.png/revision/latest?cb=1" alt="Gu"></a>',
+  '</figure>',
+  '<div class="pi-item pi-data"><h3 class="pi-data-label">Status</h3>',
+  '<div class="pi-data-value">Deceased</div></div>',
+  '<div class="pi-item pi-data"><h3 class="pi-data-label">Also known as</h3>',
+  '<div class="pi-data-value">Young Master Gu, The Fated Villain</div></div>',
+  '<div class="pi-item pi-data"><h3 class="pi-data-label">Chinese</h3>',
+  '<div class="pi-data-value">顾长歌</div></div>',
+  '<div class="pi-item pi-data"><h3 class="pi-data-label">Pinyin</h3>',
+  '<div class="pi-data-value">Gu Changge</div></div>',
+  '<div class="pi-item pi-data"><h3 class="pi-data-label">Cultivation</h3>',
+  '<div class="pi-data-value">Great Sacred Realm</div></div>',
+  '<div class="pi-item pi-data"><h3 class="pi-data-label">Affiliation</h3>',
+  '<div class="pi-data-value">Gu Family</div></div>',
+  '<div class="pi-item pi-data"><h3 class="pi-data-label">First appearance</h3>',
+  '<div class="pi-data-value">Chapter 1</div></div>',
+  '</aside>',
+  '<p>Gu Changge is the protagonist of the story.<sup class="reference">[1]</sup> ',
+  'He is known throughout the Upper Realm. In Chapter 900 he finally ascends. ',
+  'He is killed by no one at all.</p>',
+  '</div>',
+].join('');
+
+window.__fixtureExtract =
+  'Gu Changge is the protagonist of the story. He is known throughout the Upper Realm. ' +
+  'In Chapter 900 he finally ascends. He is later revealed to be the reincarnation of an ancient being.';
+
+/* --------------------------------------------------------- network stub -- */
+
+/*
+  No test ever touches the network. The stub answers the same shapes the real
+  MediaWiki Action API does, so the client code under test is the real thing.
+*/
+window.__requests = [];
+
+window.fetch = function (url) {
+  window.__requests.push(String(url));
+  const text = String(url);
+  const params = new URLSearchParams(text.split('?')[1] || '');
+  const action = params.get('action');
+
+  function json(payload) {
+    return Promise.resolve({
+      ok: true,
+      status: 200,
+      json: function () { return Promise.resolve(payload); },
+    });
+  }
+
+  if (action === 'query' && params.get('meta') === 'siteinfo') {
+    if (text.indexOf('//fatedvillain.fandom.com') >= 0) {
+      return json({ query: { general: { sitename: 'Fated Villain Wiki' } } });
+    }
+    return Promise.resolve({ ok: false, status: 404, json: function () { return Promise.resolve({}); } });
+  }
+
+  if (action === 'query' && params.get('prop')) {
+    const titles = params.get('titles') || '';
+    if (/gu changge/i.test(titles)) {
+      return json({
+        query: {
+          pages: [{
+            title: 'Gu Changge',
+            extract: window.__fixtureExtract,
+            thumbnail: { source: 'https://static.wikia.nocookie.net/example/images/a/gu.png' },
+            fullurl: 'https://fatedvillain.fandom.com/wiki/Gu_Changge',
+          }],
+        },
+      });
+    }
+    return json({ query: { pages: [{ title: titles, missing: true }] } });
+  }
+
+  if (action === 'query' && params.get('list') === 'search') {
+    return json({ query: { search: [
+      { title: 'Gu Changge', snippet: 'the fated villain' },
+      { title: 'List of characters', snippet: 'everyone' },
+    ] } });
+  }
+
+  if (action === 'parse') {
+    return json({ parse: { text: window.__fixtureArticleHtml } });
+  }
+
+  return Promise.resolve({ ok: false, status: 404, json: function () { return Promise.resolve({}); } });
+};
+
+/* Settings must start from a known state, not from whatever a previous run left. */
+try { window.localStorage.clear(); } catch (e) {}
+</script>
+
+<!-- The program under test. It boots on DOMContentLoaded, after this parses. -->
+<script src="../dist/lorelens.js"></script>
+
+<script>
+/* ------------------------------------------------------------------ tests */
+
+function run() {
+  const api = window.lorelens;
+  if (!api || !api._internals) {
+    window.__results.failed += 1;
+    window.__results.lines.push('  FAIL window.lorelens never appeared — the script did not boot');
+    return Promise.resolve();
+  }
+
+  const I = api._internals;
+  const app = I.app;
+
+  /* ---------------------------------------------------------- text utils */
+
+  section('text utilities');
+
+  is(I.foldKey('  Gu   CHANGGE '), 'gu changge', 'foldKey lowercases and collapses whitespace');
+  is(I.foldKey('Lú Yǔ'), 'lu yu', 'foldKey strips diacritics');
+  is(I.splitSentences('One. Two! Three?').length, 3, 'splitSentences splits on terminators');
+  is(I.splitSentences('').length, 0, 'splitSentences handles empty input');
+
+  is(I.ReaderContext.parseChapterNumber('Chapter 412 - The River'), 412, 'parses "Chapter 412"');
+  is(I.ReaderContext.parseChapterNumber('Ch. 89'), 89, 'parses "Ch. 89"');
+  is(I.ReaderContext.parseChapterNumber('0862 - Something'), 862, 'parses a leading zero-padded number');
+  is(I.ReaderContext.parseChapterNumber('A Quiet Interlude'), 0, 'returns 0 rather than guessing');
+
+  /* -------------------------------------------------------- name detector */
+
+  section('name detection');
+
+  const detector = new I.NameDetector(app.settings);
+  const chapterText = document.getElementById('LNReader-chapter').innerText;
+  const detected = detector.detect(chapterText).map(function (d) { return d.phrase; });
+
+  ok(detected.indexOf('Gu Changge') >= 0, 'finds a name repeated across paragraphs');
+  ok(detected.indexOf('Yue Mingkong') >= 0, 'finds a name repeated within a paragraph');
+  notOk(detected.indexOf('However') >= 0, 'ignores a capitalised sentence-opening stopword');
+  notOk(detected.indexOf('Suddenly') >= 0, 'ignores "Suddenly" at the start of a sentence');
+  notOk(detected.indexOf('Ling Xian') >= 0, 'ignores a name appearing only once at default settings');
+  notOk(detected.indexOf('Chapter') >= 0, 'ignores the word "Chapter"');
+
+  /* --------------------------------------------------------- entity index */
+
+  section('entity index');
+
+  const index = new I.EntityIndex();
+  index.add({ name: 'Gu', aliases: [], entity: null, confidence: I.CONFIDENCE.GUESSED });
+  index.add({ name: 'Young Master Gu', aliases: [], entity: null, confidence: I.CONFIDENCE.GUESSED });
+  const matcher = index.buildMatcher();
+  const found = 'Young Master Gu walked'.match(matcher);
+  is(found && found[0], 'Young Master Gu', 'longest alternative wins at the same position');
+
+  index.add({ name: 'Tao', aliases: [], entity: null, confidence: I.CONFIDENCE.GUESSED });
+  const m2 = index.buildMatcher();
+  m2.lastIndex = 0;
+  notOk(m2.test('Taoism'), 'does not match inside a longer word');
+
+  /* ------------------------------------------------------------- infobox */
+
+  section('infobox parsing');
+
+  const fields = I.parseInfobox(window.__fixtureArticleHtml);
+  is(fields.Status, 'Deceased', 'reads a portable-infobox data value');
+  is(fields.Chinese, '顾长歌', 'reads a non-Latin field');
+  ok(String(fields['Also known as']).indexOf('Young Master Gu') >= 0, 'reads the alias field');
+
+  is(I.classifyFieldLabel('Status'), 'status', 'classifies Status');
+  is(I.classifyFieldLabel('Standing'), 'status', 'classifies a synonym for Status');
+  is(I.classifyFieldLabel('Cultivation'), 'rank', 'classifies Cultivation as rank');
+  is(I.classifyFieldLabel('Utterly Unknown Field'), null, 'returns null for an unknown label');
+
+  const entity = I.buildEntity(
+    { title: 'Gu Changge', extract: window.__fixtureExtract, fullurl: 'https://fatedvillain.fandom.com/wiki/Gu_Changge' },
+    window.__fixtureArticleHtml,
+    'fatedvillain',
+  );
+  is(entity.name, 'Gu Changge', 'entity keeps the article title');
+  is(entity.native, '顾长歌', 'entity picks up the native-script name');
+  ok(entity.aliases.indexOf('Young Master Gu') >= 0, 'entity derives aliases from the infobox');
+  ok(entity.tags.length > 0, 'entity derives tags');
+  ok(entity.sections.length >= 1, 'entity splits the extract into sections');
+
+  const statusTag = entity.tags.filter(function (t) { return t.kind === 'fate'; })[0];
+  ok(statusTag, 'a status tag is produced');
+  ok(statusTag && statusTag.isFateReveal, 'a status of "Deceased" is flagged as a fate reveal');
+
+  is(
+    I.scaleWikiImage('https://static.wikia.nocookie.net/x/images/a/gu.png/revision/latest?cb=1', 480),
+    'https://static.wikia.nocookie.net/x/images/a/gu.png/revision/latest/scale-to-width-down/480',
+    'wiki images are requested at a sane size',
+  );
+  is(I.scaleWikiImage('https://example.com/a.png', 480), 'https://example.com/a.png', 'non-wiki images are left alone');
+
+  /* ------------------------------------------------------ spoiler guard -- */
+
+  section('spoiler guard');
+
+  const settings = new I.Settings(new I.Store());
+  settings.values.spoilerGuard = 'chapter';
+  settings.values.chapterProgress = 412;
+  const spoilerGuard = new I.SpoilerGuard(settings);
+
+  is(I.SpoilerGuard.findReferencedChapter('In Chapter 900 he ascends.'), 900, 'finds a chapter reference');
+  is(I.SpoilerGuard.findReferencedChapter('He walked away.'), 0, 'finds none when there is none');
+
+  ok(spoilerGuard.judgeSentence('In Chapter 900 he ascends.', false).hide, 'hides text about a later chapter');
+  notOk(spoilerGuard.judgeSentence('In Chapter 12 he was born.', false).hide, 'shows text about an earlier chapter');
+  notOk(spoilerGuard.judgeSentence('He is known throughout the realm.', true).hide, 'the intro section stays visible');
+
+  settings.values.spoilerGuard = 'strong';
+  ok(spoilerGuard.judgeSentence('He is later revealed to be a god.', false).hide, 'strong mode hides a reveal');
+
+  settings.values.spoilerGuard = 'off';
+  notOk(spoilerGuard.judgeSentence('In Chapter 900 he ascends.', false).hide, 'off mode hides nothing');
+  notOk(spoilerGuard.shouldMaskTag({ isFateReveal: true }), 'off mode does not mask tags');
+
+  settings.values.spoilerGuard = 'chapter';
+  ok(spoilerGuard.shouldMaskTag({ isFateReveal: true }), 'a fate tag is masked by default');
+
+  const plan = spoilerGuard.plan(entity);
+  const hiddenRuns = plan.sections.reduce(function (n, s) {
+    return n + s.runs.filter(function (r) { return r.hidden; }).length;
+  }, 0);
+  ok(hiddenRuns > 0, 'the plan hides at least one run of the fixture summary');
+  ok(plan.tags.some(function (t) { return t.masked; }), 'the plan masks the status tag');
+
+  /* ------------------------------------------------------------- storage */
+
+  section('storage');
+
+  const store = new I.Store();
+  store.write('unit-test-key', { hello: 'world' }, 0);
+  is(store.read('unit-test-key').hello, 'world', 'round-trips a value');
+  store.write('unit-test-expiring', 'x', -1);
+  is(store.read('unit-test-expiring'), null, 'an expired value reads as absent');
+  store.remove('unit-test-key');
+  is(store.read('unit-test-key'), null, 'a removed value reads as absent');
+
+  /* ------------------------------------------------------- wiki plumbing */
+
+  section('wiki client');
+
+  const candidates = I.WikiClient.candidateSubdomains('The Fated Villain');
+  ok(candidates.indexOf('thefatedvillain') >= 0, 'generates the joined-words subdomain');
+  ok(candidates.indexOf('fatedvillain') >= 0, 'generates the subdomain with the leading article dropped');
+
+  ok(
+    I.WikiClient.matchScore('Gu Changge', 'Gu Changge') > I.WikiClient.matchScore('Gu Changge', 'Gu Changge (novel)'),
+    'an exact title outranks a qualified one',
+  );
+  ok(
+    I.WikiClient.matchScore('Gu', 'Gu Changge') > I.WikiClient.matchScore('Gu', 'List of characters'),
+    'a real article outranks a list page',
+  );
+
+  /* --------------------------------------------------------- highlighting */
+
+  section('highlighting');
+
+  const chapterRoot = document.getElementById('LNReader-chapter');
+  ok(app.context.root === chapterRoot, 'the chapter root was detected');
+  is(app.context.chapterNumber, 412, 'the chapter number was read from the heading');
+
+  const mode = app.highlighter.mode;
+  ok(mode === 'highlight' || mode === 'wrap', 'the highlighter picked a mode: ' + mode);
+
+  /*
+    The regression that matters most. In the painted mode the chapter DOM must
+    come out of highlighting byte-identical, because anything else breaks text
+    selection and text-to-speech in the real reader.
+  */
+  if (mode === 'highlight') {
+    ok(chapterRoot.querySelectorAll('span.lorelens-term').length === 0,
+      'painted mode does not insert any elements into the chapter');
+    ok(window.CSS.highlights.size > 0, 'painted mode registered at least one highlight');
+  }
+
+  /* Links and code must survive whichever mode ran. */
+  const linkText = chapterRoot.querySelector('a[href="#nowhere"]').textContent;
+  is(linkText, 'Gu Changge', 'text inside a link is untouched');
+  is(chapterRoot.querySelector('code').textContent, 'Gu Changge', 'text inside code is untouched');
+  is(chapterRoot.querySelector('a[href="#nowhere"]').children.length, 0, 'no element was inserted inside the link');
+
+  /* And the wrapping path has to work too, since old WebViews will take it. */
+  const wrapIndex = new I.EntityIndex();
+  wrapIndex.add({ name: 'Tao Yao', aliases: [], entity: null, confidence: I.CONFIDENCE.CONFIRMED });
+  const wrapper = new I.Highlighter(wrapIndex, app.settings);
+  wrapper.mode = 'wrap';
+  const scratch = document.createElement('div');
+  scratch.innerHTML = '<p>Tao Yao walked past Tao Yao again.</p>';
+  document.body.appendChild(scratch);
+  wrapper.run(scratch);
+
+  /* ------------------------------------------------------------ escaping */
+
+  section('escaping');
+
+  const nastyEntity = {
+    id: 'x', name: '<img src=x onerror=alert(1)>', title: 'x', aliases: [],
+    native: '', romanized: '', image: 'javascript:alert(1)', url: 'javascript:alert(1)',
+    tags: [{ label: '<b>bold</b>', tone: 'neutral', kind: 'plain' }],
+    sections: [{ title: 'Who this is', body: '<script>alert(1)<\/script>', alwaysSafe: true }],
+    firstSeen: 0, source: 'wiki',
+  };
+  app.panel.showEntity(nastyEntity);
+  const panelHtml = app.panel.scroll.innerHTML;
+  is(app.panel.scroll.querySelectorAll('script, img[src^="javascript"]').length, 0,
+    'a hostile wiki entry creates no script or javascript-url element');
+  ok(panelHtml.indexOf('&lt;img') >= 0, 'a hostile name is rendered as escaped text');
+  is(app.panel.scroll.querySelectorAll('a[href^="javascript"]').length, 0, 'a javascript: url is never emitted');
+  app.panel.close();
+
+  /* ------------------------------------------------------------ lorepack */
+
+  section('lorepack validation');
+
+  const LoreLensAppClass = app.constructor;
+
+  notOk(LoreLensAppClass.validateLorepack(null), 'rejects null');
+  notOk(LoreLensAppClass.validateLorepack({}), 'rejects an object with no entities');
+  notOk(LoreLensAppClass.validateLorepack({ entities: [] }), 'rejects an empty pack');
+  notOk(LoreLensAppClass.validateLorepack({ entities: [{ name: '' }] }), 'rejects an entry with no name');
+
+  const cleaned = LoreLensAppClass.validateLorepack({
+    entities: [{
+      name: 'Fang Yuan',
+      aliases: ['Gu Master', 'x'],
+      image: 'javascript:alert(1)',
+      url: 'http://insecure.example/page',
+      tags: [{ label: 'Deceased', tone: 'evil', kind: 'fate' }],
+      sections: [{ title: 'Who this is', body: 'A demonic cultivator.', alwaysSafe: true }],
+      extraFieldNobodyAskedFor: 'ignored',
+    }],
+  });
+
+  ok(cleaned, 'accepts a well-formed pack');
+  is(cleaned.entities[0].image, '', 'a javascript: image url is dropped');
+  is(cleaned.entities[0].url, '', 'a non-https page url is dropped');
+  is(cleaned.entities[0].tags[0].tone, 'neutral', 'an unknown tone falls back to neutral');
+  ok(cleaned.entities[0].tags[0].isFateReveal, 'a fate tag from a pack is still flagged');
+  is(cleaned.entities[0].aliases.length, 1, 'an alias below the minimum length is dropped');
+  is(cleaned.entities[0].extraFieldNobodyAskedFor, undefined, 'unknown fields do not survive');
+
+  /* ------------------------------------------------------- the whole flow */
+
+  section('end-to-end lookup');
+
+  app.settings.values.liveLookup = true;
+  app.wiki.use('fatedvillain');
+
+  return app.lookup('Gu Changge').then(function () {
+    const name = app.panel.scroll.querySelector('.lorelens-name');
+    is(name && name.textContent, 'Gu Changge', 'tapping a name opens the panel with the article');
+    ok(app.panel.isOpen, 'the panel is open');
+
+    const hidden = app.panel.scroll.querySelectorAll('.lorelens-hidden');
+    ok(hidden.length > 0, 'the later-chapter sentence is hidden in the rendered panel');
+    notOk(app.panel.scroll.textContent.indexOf('Chapter 900 he finally ascends') >= 0,
+      'the hidden text is not present as readable text');
+
+    /* Revealing has to actually work, or the guard is just censorship. */
+    hidden[0].click();
+    ok(app.panel.scroll.textContent.indexOf('ascends') >= 0, 'tapping a hidden run reveals it');
+
+    return app.lookup('Nobody At All');
+  }).then(function () {
+    ok(app.panel.scroll.textContent.toLowerCase().indexOf('no article') >= 0 ||
+       app.panel.scroll.querySelectorAll('.lorelens-choice').length > 0,
+      'an unknown name produces an honest answer rather than a spinner');
+
+    is(window.__requests.filter(function (u) { return u.indexOf('origin=%2A') >= 0 || u.indexOf('origin=*') >= 0; }).length,
+      window.__requests.length,
+      'every request carried origin=* for anonymous CORS');
+  });
+}
+
+/* ------------------------------------------------------------------ report */
+
+function report() {
+  const results = window.__results;
+  const out = document.getElementById('out');
+  out.textContent = results.lines.join('\n');
+  const summary = document.getElementById('summary');
+  const line = 'RESULT ' + results.passed + ' passed, ' + results.failed + ' failed';
+  summary.textContent = line;
+  summary.className = 'summary ' + (results.failed === 0 ? 'pass' : 'fail');
+  document.title = line;
+}
+
+/* Give the highlighter its idle callbacks before asserting on the result. */
+window.addEventListener('load', function () {
+  setTimeout(function () {
+    Promise.resolve()
+      .then(run)
+      .catch(function (error) {
+        window.__results.failed += 1;
+        window.__results.lines.push('  FAIL threw: ' + (error && error.stack || error));
+      })
+      .then(report);
+  }, 350);
+});
+</script>
+</body>
+</html>

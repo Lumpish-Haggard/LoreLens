@@ -1,0 +1,82 @@
+name: Bug report
+description: Something in LoreLens does not work the way it should
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. Please keep plot spoilers out of the description
+        unless you put `[spoilers]` in the title.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, what you got instead.
+      placeholder: |
+        I tapped a highlighted name and the panel opened but stayed on "Looking this up…" forever.
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: LoreLens version
+      description: Shown at the bottom of the LoreLens settings panel. If you cannot open it, say "unknown".
+      placeholder: "2.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: wiki
+    attributes:
+      label: Which wiki
+      description: The Fandom wiki LoreLens was using, if the bug involves looking something up.
+      placeholder: "shadowslave.fandom.com"
+
+  - type: input
+    id: entry
+    attributes:
+      label: Which entry
+      description: The name you tapped, and the wiki page it should have matched.
+      placeholder: 'Tapped "Sunny", should match https://shadowslave.fandom.com/wiki/Sunny'
+
+  - type: dropdown
+    id: reader
+    attributes:
+      label: Reader app
+      options:
+        - LNReader
+        - Other (say which in the description)
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device and Android version
+      description: >
+        This matters more than you would think — LoreLens leans on browser features whose
+        availability depends on the Android System WebView version on your device.
+      placeholder: "Pixel 7a, Android 15"
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Diagnostics
+      description: >
+        Open the LoreLens settings panel and tap "Copy diagnostics", then paste here.
+        This is a short block of feature-detection results with no personal data in it.
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I am on the latest `dist/lorelens.js`
+          required: true
+        - label: I checked docs/TROUBLESHOOTING.md
+          required: true

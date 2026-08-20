@@ -1,66 +1,202 @@
-# LoreLens for LNReader
+# LoreLens
 
-Highlights character, place and term names inside a chapter. Tap one and a bottom sheet slides up with the portrait, status capsules and wiki summary — the same idea as the desktop tool in the video, running inside LNReader on your phone.
+**Tap a character's name while reading. Get their wiki entry. Don't get spoiled.**
 
-## Why this is custom JS and not a plugin
+You are 500 chapters into a xianxia novel. A name appears. You have absolutely
+no memory of who that is. You search for them, and the first result tells you
+how they die.
 
-LNReader "plugins" are **source plugins**. Their job is `searchNovels`, `parseNovel`, `parseChapter` — fetch text from a website and hand it to the reader. There is no plugin hook for decorating the rendered chapter or drawing UI over it.
+LoreLens fixes both halves of that. It marks the names in the chapter you are
+reading, and tapping one opens a panel with their portrait, their sect, and a
+summary from the novel's wiki — with anything the wiki ties to a chapter you
+have not reached yet hidden behind a tap.
 
-What LNReader *does* expose is script injection into the reader WebView: **Settings → Reader → Advanced → JS**. Your code runs after all built-in scripts, with full DOM access, on every chapter you open — regardless of which source the novel came from. That is strictly better for this feature than a plugin would be: one install, works on every source.
+It is one JavaScript file you paste into your reader. There is no account, no
+API key, no server, and nothing to set up.
 
-(Source plugins *can* ship a `custom.js` alongside them, but that only applies to novels from that one source. Not what you want here.)
+```
+┌─────────────────────────────────────────┐
+│  …the fog swirled around Gu Changge,    │   ← names are marked in the text
+│  and Yue Mingkong said nothing at all.  │
+│                                          │
+├─────────────────────────────────────────┤
+│  ▐▛▀▜▌  Gu Changge                      │
+│  ▐▙▄▟▌  顾长歌 · Gù Chánggē              │
+│         also Young Master Gu             │
+│                                          │
+│  ⟨status hidden⟩ ⟨Gu Family⟩ ⟨Sacred⟩   │   ← "Deceased" doesn't ambush you
+│                                          │
+│  WHO THIS IS                             │
+│  Heir to the Gu family and the           │
+│  antagonist the story follows.           │
+│                                          │
+│  MORE                                    │
+│  ┌───────────────────────────────────┐  │
+│  │ ▨ From beyond chapter 900         │  │   ← tap to reveal, never removed
+│  │   Tap to show                     │  │
+│  └───────────────────────────────────┘  │
+└─────────────────────────────────────────┘
+```
 
 ## Install
 
-1. Open `lorelens.js`, edit the `CONFIG` block at the top.
-2. LNReader → Settings → Reader → Advanced → **JS** tab.
-3. Paste the whole file (or use **Import** and point it at `lorelens.js`). Hit **Save**.
-4. Reopen a chapter. Changes only apply on chapter open, not live.
+1. Download **[`dist/lorelens.js`](dist/lorelens.js)** and copy the whole file.
+2. In your reader, find the setting for custom reader JavaScript. In LNReader
+   this is under **Settings → Reader**, in the advanced section at the bottom.
+3. Paste it in, save, and reopen a chapter.
 
-## Configuration
+That is the entire setup. LoreLens works out which wiki your novel uses on its
+own. If it guesses wrong, tap the small **L** button and tell it — you never
+need to edit the file.
 
-| Key | What it does |
-| --- | --- |
-| `lorepackUrl` | URL to a hosted lorepack JSON. Fetched once, then cached for 30 days. |
-| `inlineLorepack` | Paste the lorepack object here instead. Fully offline, zero network. |
-| `fandomWiki` | Fandom subdomain for live lookups, e.g. `imabadguy` → `imabadguy.fandom.com`. |
-| `isLiveLookupEnabled` | Hit the wiki API when a tapped term is missing from the lorepack. |
-| `isAutoDetectEnabled` | Highlight repeated Capitalised Phrases even with no lorepack. |
-| `shouldBlurSpoilers` | Blur sections marked `isSpoiler` until tapped. |
+Longer version with screenshots: **[docs/INSTALL.md](docs/INSTALL.md)**.
 
-### Three ways to run it
+## What it does
 
-**Zero setup.** Set `fandomWiki` only. Auto-detect finds repeated capitalised names in the chapter and underlines them; tapping one queries the wiki live and caches the result. Works immediately, occasionally underlines something that isn't a real entity.
+**Finds names without being told any.** A capitalised phrase that recurs, sits
+mid-sentence, and is not a common word is nearly always a character, a place, a
+sect or a technique. That heuristic runs on the chapter you have open, so it
+works from the first paste, on any novel, before it knows anything about the
+book.
 
-**Curated, online.** Build a lorepack, host the JSON on GitHub raw, set `lorepackUrl`. Only real entities get underlined, and the data is already there when you tap. One small fetch per 30 days.
+**Finds the wiki by itself.** Fandom subdomains are overwhelmingly the novel's
+title with the spaces removed, so LoreLens generates the handful of shapes that
+convention produces, asks each whether it exists, and checks the site's name
+against the novel's before believing it.
 
-**Fully offline.** Build a lorepack, paste it into `inlineLorepack`, set `isLiveLookupEnabled: false`. No network at all. Matches how the tool in the video works. Keep it under ~1 MB of JSON or the settings field gets unpleasant to edit — that's roughly 400–600 entities with trimmed summaries.
+**Hides what is ahead of you.** This is the part that matters. Wiki pages are
+written by people who have finished the book. LoreLens reads your chapter number
+off the chapter title, and any sentence the wiki ties to a later chapter is
+covered until you tap it. Status tags — the "Deceased" that ruins a book in one
+word — are hidden by default. Nothing is ever deleted, only covered.
 
-## Building a lorepack
+**Does not damage the page.** Where the browser supports it, names are painted
+using the CSS Custom Highlight API, which marks text without touching the DOM at
+all. Selecting a sentence still selects a sentence, and text-to-speech still
+reads it correctly. Readers that wrap matches in `<span>` tags break both, and
+people notice without being able to say why the app got worse.
+
+**Gets better as you read.** Every entry you open is cached. A name you looked
+up in chapter 200 is recognised instantly in chapter 700, and works with no
+connection at all.
+
+**Look up anything.** Select any words and a **Look up** button appears, for the
+character introduced once, four hundred chapters ago, under a title nobody uses
+any more.
+
+## Settings
+
+Tap the **L** button in the corner. Everything is in there — which wiki, how far
+into the book you are, how much to hide, how much to highlight. Settings live in
+your reader's storage, so updating LoreLens never wipes them.
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| Wiki | auto | The part before `.fandom.com`. Empty means "work it out". |
+| You are on chapter | auto | Drives the spoiler guard. Fills itself in as you read. |
+| Spoiler guard | Hide what is ahead | Or hide anything final-sounding, or show everything. |
+| How much to highlight | Balanced | Strict marks only confirmed names; generous marks anything name-shaped. |
+| First mention only | on | Mark a name once per paragraph rather than every time. |
+| Look up selected text | on | The select-and-tap escape hatch. |
+| Load ahead | on | Quietly fetch common names so the first tap is instant. |
+| Use the wiki | on | Turn off for a fully offline, zero-request setup. |
+| Custom glossary | empty | Optional hand-written entries. See below. |
+
+## Does this work with my reader?
+
+It is built for and tested against **[LNReader](https://github.com/LNReader/lnreader)**,
+which lets you inject custom JavaScript into the reader view.
+
+It is not written against any single app's markup, though. LoreLens finds the
+chapter by trying a list of known containers and then, if none match, by locating
+the element that actually holds the prose. It reads the colours your reader is
+painting rather than assuming any particular theme variables. So it has a fair
+chance of working in any reader that will run a script in its reader view — and
+if it does not, the diagnostics in the settings panel will say why.
+
+> **A note on honesty:** the exact menu path for custom JS varies between
+> LNReader releases. If the wording in step 2 above does not match your version,
+> look for anything called Custom JS, Custom JavaScript, or Reader Scripts in
+> the reader settings, and please
+> [open an issue](../../issues/new?template=bug_report.yml) telling us what it
+> says so we can fix these instructions.
+
+## Custom glossaries (optional)
+
+You almost certainly do not need this. It is for novels whose wiki is a stub,
+translations using different names from the wiki's, or translation groups who
+want to publish a spoiler-safe glossary for their readers.
+
+Write a JSON file ([example](docs/example.lorepack.json)), host it anywhere over
+https, and paste the URL into settings. To get a starting point from a wiki:
 
 ```bash
-node build-lorepack.mjs \
-  --wiki imabadguy \
-  --categories "Characters,Locations,Terminology" \
-  --out fated-villain.lorepack.json
+node tools/build-lorepack.mjs --wiki shadowslave --limit 40
 ```
 
-It walks the categories, pulls each article's intro extract and thumbnail, and parses the portable infobox to derive aliases (so "Young Master Gu" resolves to the same entry) and capsules (Status, Race, Affiliation, Title, Cultivation). Run it on a laptop, not the phone. Add `--limit 30` for a quick trial run.
+Then edit what it got wrong — that is the part a script cannot do for you.
 
-Everything the builder emits is also hand-editable — see `example.lorepack.json` for the schema. Marking a section `"isSpoiler": true` is worth doing on anything past your current chapter.
+## Privacy
 
-## Known constraints
+LoreLens sends the name you tapped to that novel's Fandom wiki, and nothing
+else. No cookies are sent with the request. There is no analytics, no telemetry,
+no server belonging to this project, and nothing about you leaves your device.
+The cache and your settings are stored locally by your reader.
 
-- **Reader-only.** Custom JS runs in the chapter WebView, so highlights appear when reading, not in the library or chapter list.
-- **CORS.** Fandom's `api.php` is called with `origin=*`, which MediaWiki honours for anonymous requests. If your WebView ends up with an opaque origin on some source and the fetch is blocked, switch to `inlineLorepack` — that path never touches the network.
-- **Cache persistence.** Uses `localStorage`, keyed per origin. If a source's base URL changes, the cache re-warms silently. There's an in-memory fallback if storage is unavailable.
-- **Longest match wins.** "Young Master Gu" is matched before "Gu". Aliases shorter than 4 characters are dropped by the builder because they cause false positives everywhere.
-- **Text inside links, `<code>` and `<pre>` is left alone**, so source-site footers and translator notes don't get chewed up.
-- Highlighting is batched across frames, so a 6,000-word chapter won't block the first paint.
+The file is unminified on purpose. You are being asked to paste a script into an
+app you read in — you should be able to read it first, and `tools/check.mjs`
+enforces the properties that make that audit meaningful.
 
-## Files
+## Contributing
 
-- `lorelens.js` — the script you paste into LNReader
-- `build-lorepack.mjs` — Fandom → lorepack JSON (Node 18+, no dependencies)
-- `example.lorepack.json` — schema reference
-- `test-smoke.mjs` — jsdom harness; `npm i jsdom && node test-smoke.mjs` to verify changes
+Yes please. See **[CONTRIBUTING.md](CONTRIBUTING.md)**.
+
+The most useful contribution needs no JavaScript at all: if a novel's wiki gives
+bad results, open a
+[wiki compatibility issue](../../issues/new?template=wiki_compat.yml). Most of
+those are fixed by adding a couple of field names to a list.
+
+```bash
+git clone https://github.com/OWNER/LoreLens.git
+cd LoreLens
+npm run build     # concatenates src/*.js into dist/lorelens.js
+npm test          # runs the suite in real headless Chrome
+```
+
+There are no dependencies to install.
+
+## How it fits together
+
+```
+src/00-prologue     the wrapper, and the guard against double-injection
+src/10-constants    tunables, and the wiki-compatibility field tables
+src/15-utils        escaping, folding, colour maths, the error guards
+src/20-storage      localStorage that never throws and never fills up
+src/25-settings     defaults, persistence, per-novel overrides
+src/30-context      finds the chapter, the novel, the chapter number, the theme
+src/40-wiki         the Fandom client, request queue, wiki discovery
+src/45-entity       wiki payload → the thing the panel draws
+src/50-spoilers     the spoiler guard
+src/60-index        term → entity map and the matcher
+src/65-detect       finding names with no prior knowledge
+src/70-highlighter  painted highlights, with a wrapping fallback
+src/80-styles       CSS generated from the detected palette
+src/82-panel        the sheet
+src/84-settings-ui  the settings form
+src/86-selection    select-text-to-look-up
+src/90-app          orchestration
+src/99-bootstrap    the public API and startup
+```
+
+More detail in **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
+
+## Credits
+
+The idea comes from a [tool shared on r/Manhua](https://www.reddit.com/r/Manhua/comments/1vsfpvu/new_tool_ayo_check_this_tool_and_drop_your/)
+that did this on the desktop, and from the first comment under it pointing out
+that a status tag reading "dead" is itself the spoiler. The spoiler guard is
+here because of that comment.
+
+## Licence
+
+[MIT](LICENSE).
