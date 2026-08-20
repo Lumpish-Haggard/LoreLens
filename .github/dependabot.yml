@@ -10,3 +10,11 @@ updates:
       prefix: "chore"
     labels:
       - "chore"
+    # One pull request for all of them, rather than one each. The first run
+    # opened four at once, which is a lot of ceremony for four version numbers
+    # in two workflow files — and they are far easier to judge together, since
+    # CI either passes with the whole set or it does not.
+    groups:
+      github-actions:
+        patterns:
+          - "*"
