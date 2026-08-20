@@ -66,6 +66,44 @@
       this.wrappedElements = [];
     }
 
+    /**
+     * Are the marks we drew still on the page?
+     *
+     * Ranges are anchored to text nodes, so anything that replaces the chapter's
+     * nodes — the reader re-rendering after a font change, a lazy loader, its
+     * own scripts restoring state when a panel closes — silently detaches them
+     * and the marks vanish with no event to tell us. Cheap enough to check
+     * whenever we might have been disturbed.
+     */
+    isStillPainted(root) {
+      if (this.ranges.length === 0) return true; // nothing was drawn; nothing lost
+
+      if (this.mode === 'highlight') {
+        try {
+          if (!window.CSS.highlights.has(HIGHLIGHT_NAME) &&
+              !window.CSS.highlights.has(HIGHLIGHT_NAME + '-guess')) {
+            return false;
+          }
+        } catch (error) {
+          return false;
+        }
+      }
+
+      /* A detached range reports a collapsed, zero-length rect, and its start
+       * container is no longer inside the chapter. Sampling a few is enough. */
+      const sample = Math.min(4, this.ranges.length);
+      for (let index = 0; index < sample; index += 1) {
+        const entry = this.ranges[index];
+        try {
+          const node = entry.range.startContainer;
+          if (!node || (root && !root.contains(node))) return false;
+        } catch (error) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     static unwrap(element) {
       const parent = element.parentNode;
       if (!parent) return;
@@ -92,21 +130,50 @@
       const seenInBlock = new Map();
       let cursor = 0;
       let matchCount = 0;
+      let isFinished = false;
+
+      /**
+       * Whatever happens, the caller is told the run is over exactly once.
+       *
+       * This is not defensive padding. The walk is spread across idle
+       * callbacks, so a throw inside one of them unwinds into the browser's
+       * callback queue and nowhere else: the completion callback would never
+       * fire, the caller's "a scan is in progress" flag would stay set forever,
+       * and — because highlights are cleared at the top of a run — every mark
+       * would be gone with no scan ever able to start again. The only way out
+       * was to close the novel and reopen it. That was a real bug.
+       */
+      function finish() {
+        if (isFinished) return;
+        isFinished = true;
+        try {
+          self.commit();
+        } catch (error) {
+          log('could not commit highlights:', (error && error.message) || String(error));
+        }
+        log('highlighted', String(matchCount), 'mentions');
+        if (onComplete) onComplete(matchCount);
+      }
 
       function processBatch() {
-        const end = Math.min(cursor + NODES_PER_BATCH, textNodes.length);
-        for (; cursor < end; cursor += 1) {
-          matchCount += self.markNode(textNodes[cursor], matcher, seenInBlock);
+        try {
+          const end = Math.min(cursor + NODES_PER_BATCH, textNodes.length);
+          for (; cursor < end; cursor += 1) {
+            matchCount += self.markNode(textNodes[cursor], matcher, seenInBlock);
+          }
+        } catch (error) {
+          /* A node that moved under us, or a selector this engine dislikes.
+           * Keep whatever was matched so far rather than losing the chapter. */
+          log('highlight batch failed:', (error && error.message) || String(error));
+          finish();
+          return;
         }
 
         if (cursor < textNodes.length) {
           whenIdle(processBatch);
           return;
         }
-
-        self.commit();
-        log('highlighted', String(matchCount), 'mentions');
-        if (onComplete) onComplete(matchCount);
+        finish();
       }
 
       processBatch();

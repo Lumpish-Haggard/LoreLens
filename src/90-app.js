@@ -22,6 +22,7 @@
       this.currentTerm = '';
       this.observer = null;
       this.isScanning = false;
+      this.scanStartedAt = 0;
     }
 
     /* ------------------------------------------------------------- startup */
@@ -41,6 +42,7 @@
       this.panel = new Panel({
         spoilerGuard: this.spoilerGuard,
         onAction: guard('app.panelAction', this.handlePanelAction.bind(this)),
+        onClose: guard('app.panelClosed', this.revalidateHighlights.bind(this)),
       });
       this.settingsView = new SettingsView({
         settings: this.settings,
@@ -231,9 +233,29 @@
     /* ---------------------------------------------------------- scanning -- */
 
     /** Detect names, index them, paint them. */
+    /**
+     * Re-mark the chapter if the marks have gone.
+     *
+     * Called when a panel closes, because that is when the reader is most
+     * likely to have re-rendered the chapter underneath it, and a reader whose
+     * highlights vanished after looking one name up has no way of getting them
+     * back short of leaving the novel and coming in again.
+     */
+    revalidateHighlights() {
+      if (!this.settings.get('enabled') || !this.highlighter) return;
+      if (this.highlighter.isStillPainted(this.context.root)) return;
+      log('marks went missing; re-running');
+      this.scan();
+    }
+
     scan() {
-      if (this.isScanning) return;
+      /* A scan that somehow never finished must not wedge the tool forever. */
+      if (this.isScanning) {
+        if (Date.now() - this.scanStartedAt < 10000) return;
+        log('previous scan never finished; starting a new one');
+      }
       this.isScanning = true;
+      this.scanStartedAt = Date.now();
 
       const root = this.context.root;
       const text = (root && (root.innerText || root.textContent)) || '';
@@ -471,13 +493,24 @@
 
     /* ------------------------------------------------------------- events -- */
 
+    /**
+     * Listen on the document rather than the chapter element.
+     *
+     * A listener bound to the chapter container dies with it the moment the
+     * reader swaps that container out for the next chapter, and taps stop
+     * working with nothing to show why. The document outlives every re-render.
+     */
     bindTaps() {
       const self = this;
-      const root = this.context.root;
-      if (!root) return;
 
-      root.addEventListener('click', guard('app.tap', function (event) {
+      document.addEventListener('click', guard('app.tap', function (event) {
         if (!self.settings.get('enabled')) return;
+
+        const root = self.context.root;
+        if (!root || !event.target) return;
+        /* Ignore taps on our own UI, and anything outside the prose. */
+        if (event.target.closest && event.target.closest('.lorelens-ui')) return;
+        if (!root.contains(event.target)) return;
 
         /* The wrapping path gives us a real element to read the term off. */
         const marked = event.target.closest
@@ -704,10 +737,20 @@
 
       const repaint = debounce(guard('app.repaint', function () {
         const previousTitle = self.context.chapterTitle;
+        const previousRoot = self.context.root;
         self.context.detect();
+
+        /* If the reader swapped the whole container out, we have been watching
+         * a detached element ever since — no further mutation would ever reach
+         * us, so the next chapter would never get marked. */
+        if (self.context.root && self.context.root !== previousRoot) {
+          log('chapter container was replaced; re-attaching the observer');
+          self.observeRoot();
+        }
 
         if (self.context.chapterTitle !== previousTitle) {
           log('chapter changed:', self.context.chapterTitle);
+          self.settings.useNovel(self.context.novelKey);
           self.settings.advanceProgress(self.context.chapterNumber);
         }
         if (self.settings.get('enabled')) self.scan();
@@ -724,8 +767,18 @@
         }
       });
 
-      const root = this.context.root;
-      if (root) this.observer.observe(root, { childList: true, subtree: true });
+      this.observeRoot();
+    }
+
+    /** Point the chapter observer at the current root, wherever it moved to. */
+    observeRoot() {
+      if (!this.observer || !this.context.root) return;
+      try {
+        this.observer.disconnect();
+        this.observer.observe(this.context.root, { childList: true, subtree: true });
+      } catch (error) {
+        log('could not observe the chapter:', (error && error.message) || String(error));
+      }
     }
 
     /** Follow the reader when it changes theme, so the panel never clashes. */

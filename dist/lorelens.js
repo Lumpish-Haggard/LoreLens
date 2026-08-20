@@ -952,22 +952,48 @@
         if (element) candidates.push(element.getAttribute(attribute));
       }
 
-      /* Then the document title, minus any chapter suffix. */
-      if (document.title) {
-        candidates.push(
-          document.title
-            .replace(/[-–—|:]\s*(chapter|ch\.?|episode|ep\.?)\s*[\d.]+.*$/i, '')
-            .replace(/\s*[-–—|]\s*(LNReader|Reader)\s*$/i, ''),
-        );
-      }
+      if (document.title) candidates.push(document.title);
 
       for (const candidate of candidates) {
-        const cleaned = String(candidate || '').replace(/\s+/g, ' ').trim();
+        const cleaned = ReaderContext.normalizeNovelTitle(candidate);
         if (cleaned.length >= 2 && cleaned.length <= 120 && !/^chapter\b/i.test(cleaned)) {
           return cleaned;
         }
       }
       return '';
+    }
+
+    /**
+     * Strip the chapter part off a title, leaving the book.
+     *
+     * This decides the key that per-novel settings are filed under, which makes
+     * it far more load-bearing than it looks. An earlier version only stripped a
+     * chapter suffix when a separator preceded it, so a reader whose title reads
+     * "Some Novel Chapter 412" kept the number — meaning the key changed on
+     * every single chapter, no saved setting was ever found again, and the tool
+     * asked which wiki to use over and over. Hence: no separator required, and
+     * every candidate goes through here rather than only the document title.
+     */
+    static normalizeNovelTitle(raw) {
+      let text = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+
+      /* The reader's own name, if it appended one. */
+      text = text.replace(/\s*[-–—|]\s*(LNReader|Reader)\s*$/i, '');
+
+      /* "Vol. 3", "Book 2" anywhere in the string. */
+      text = text.replace(/[\s\-–—|:,]*\b(?:volume|vol\.?|book)\s*#?\s*\d+\b/gi, ' ');
+
+      /* A chapter marker and everything after it, with or without a separator
+       * in front — "X Chapter 412", "X - Ch. 412: Title", "X | Episode 7". */
+      text = text.replace(
+        /[\s\-–—|:,]*\b(?:chapters?|chap\.?|ch\.?|episodes?|ep\.?|parts?)\s*#?\s*\d+(?:\.\d+)?\b[\s\S]*$/i,
+        '',
+      );
+
+      /* A bare trailing number, as in "Some Novel 412" or "Some Novel #412". */
+      text = text.replace(/[\s\-–—|:,]*#?\d{1,5}\s*$/, '');
+
+      return text.replace(/[\s\-–—|:,]+$/, '').replace(/\s+/g, ' ').trim();
     }
 
     findChapterTitle() {
@@ -2362,6 +2388,44 @@
       this.wrappedElements = [];
     }
 
+    /**
+     * Are the marks we drew still on the page?
+     *
+     * Ranges are anchored to text nodes, so anything that replaces the chapter's
+     * nodes — the reader re-rendering after a font change, a lazy loader, its
+     * own scripts restoring state when a panel closes — silently detaches them
+     * and the marks vanish with no event to tell us. Cheap enough to check
+     * whenever we might have been disturbed.
+     */
+    isStillPainted(root) {
+      if (this.ranges.length === 0) return true; // nothing was drawn; nothing lost
+
+      if (this.mode === 'highlight') {
+        try {
+          if (!window.CSS.highlights.has(HIGHLIGHT_NAME) &&
+              !window.CSS.highlights.has(HIGHLIGHT_NAME + '-guess')) {
+            return false;
+          }
+        } catch (error) {
+          return false;
+        }
+      }
+
+      /* A detached range reports a collapsed, zero-length rect, and its start
+       * container is no longer inside the chapter. Sampling a few is enough. */
+      const sample = Math.min(4, this.ranges.length);
+      for (let index = 0; index < sample; index += 1) {
+        const entry = this.ranges[index];
+        try {
+          const node = entry.range.startContainer;
+          if (!node || (root && !root.contains(node))) return false;
+        } catch (error) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     static unwrap(element) {
       const parent = element.parentNode;
       if (!parent) return;
@@ -2388,21 +2452,50 @@
       const seenInBlock = new Map();
       let cursor = 0;
       let matchCount = 0;
+      let isFinished = false;
+
+      /**
+       * Whatever happens, the caller is told the run is over exactly once.
+       *
+       * This is not defensive padding. The walk is spread across idle
+       * callbacks, so a throw inside one of them unwinds into the browser's
+       * callback queue and nowhere else: the completion callback would never
+       * fire, the caller's "a scan is in progress" flag would stay set forever,
+       * and — because highlights are cleared at the top of a run — every mark
+       * would be gone with no scan ever able to start again. The only way out
+       * was to close the novel and reopen it. That was a real bug.
+       */
+      function finish() {
+        if (isFinished) return;
+        isFinished = true;
+        try {
+          self.commit();
+        } catch (error) {
+          log('could not commit highlights:', (error && error.message) || String(error));
+        }
+        log('highlighted', String(matchCount), 'mentions');
+        if (onComplete) onComplete(matchCount);
+      }
 
       function processBatch() {
-        const end = Math.min(cursor + NODES_PER_BATCH, textNodes.length);
-        for (; cursor < end; cursor += 1) {
-          matchCount += self.markNode(textNodes[cursor], matcher, seenInBlock);
+        try {
+          const end = Math.min(cursor + NODES_PER_BATCH, textNodes.length);
+          for (; cursor < end; cursor += 1) {
+            matchCount += self.markNode(textNodes[cursor], matcher, seenInBlock);
+          }
+        } catch (error) {
+          /* A node that moved under us, or a selector this engine dislikes.
+           * Keep whatever was matched so far rather than losing the chapter. */
+          log('highlight batch failed:', (error && error.message) || String(error));
+          finish();
+          return;
         }
 
         if (cursor < textNodes.length) {
           whenIdle(processBatch);
           return;
         }
-
-        self.commit();
-        log('highlighted', String(matchCount), 'mentions');
-        if (onComplete) onComplete(matchCount);
+        finish();
       }
 
       processBatch();
@@ -2916,6 +3009,7 @@
     constructor(options) {
       this.guard = options.spoilerGuard;
       this.onAction = options.onAction || function () {};
+      this.onClose = options.onClose || function () {};
       this.isOpen = false;
       this.lastFocused = null;
       this.build();
@@ -3032,6 +3126,7 @@
     }
 
     close() {
+      const wasOpen = this.isOpen;
       this.isOpen = false;
       this.scrim.classList.remove('is-open');
       this.panel.classList.remove('is-open');
@@ -3043,6 +3138,9 @@
           /* the element went away with the chapter */
         }
       }
+      /* Coming back to the chapter is the moment to check the marks survived
+       * whatever the reader did while the panel was covering them. */
+      if (wasOpen) this.onClose();
     }
 
     setContent(html) {
@@ -3507,6 +3605,11 @@
       const lines = [
         'LoreLens ' + VERSION,
         'novel: ' + (this.context.novelTitle || '(not detected)'),
+        /* If this changes between chapters, per-novel settings will not be
+         * found again and the reader gets asked for the wiki over and over.
+         * Having it in a bug report makes that diagnosable in one glance. */
+        'novel key: ' + this.context.novelKey,
+        'document.title: ' + (document.title || '(empty)'),
         'chapter: ' + (this.context.chapterTitle || '(not detected)') +
           ' → number ' + this.context.chapterNumber,
         'root: ' + (this.context.root ? this.context.root.tagName + '#' + (this.context.root.id || '') : 'NONE'),
@@ -3840,10 +3943,26 @@
           if (title) return title;
           /* Nothing obvious — ask the wiki's own search. */
           return self.wiki.searchTitle('cultivation realms ranks power system').then(function (results) {
-            if (!results || results.length === 0) return null;
-            return results[0].title;
+            const usable = (results || []).filter(function (result) {
+              return RealmsGuide.isWorldLevelPage(result.title);
+            });
+            return usable.length > 0 ? usable[0].title : null;
           });
         });
+    }
+
+    /**
+     * A page about the world's system, rather than one character's progress
+     * through it. Wikis file the latter as subpages — "Xiao Yan/Cultivation" —
+     * and searching for cultivation finds those first, because there are
+     * dozens of them and only one of the real thing.
+     */
+    static isWorldLevelPage(title) {
+      const text = String(title || '');
+      if (!text || text.indexOf('/') >= 0) return false;
+      if (/^(category|template|file|user|talk|forum):/i.test(text)) return false;
+      if (/^list of/i.test(text)) return false;
+      return true;
     }
 
     /* ----------------------------------------------------------- parsing -- */
@@ -3888,16 +4007,79 @@
         if (element.parentNode) element.parentNode.removeChild(element);
       }
 
+      /* A long article usually documents several parallel systems — the
+       * cultivation ladder, the techniques, the alchemy tiers, the artefacts.
+       * Pick the section that is actually the progression before reading
+       * anything, or a page like Battle Through the Heavens' hands back its
+       * technique classes instead of its realms. */
+      const scoped = RealmsGuide.findLadderSection(body);
+      if (scoped) {
+        const steps = RealmsGuide.extractFrom(scoped);
+        if (steps.length >= 3) return steps;
+      }
+
+      const whole = RealmsGuide.extractFrom([body]);
+      if (whole.length >= 3) return whole;
+
+      /* Only now are the section headings themselves worth treating as rungs —
+       * on a page that lists each realm under its own heading, they are the
+       * ladder, but on any page with a richer structure they are furniture. */
+      try {
+        return RealmsGuide.clean(RealmsGuide.textsOf(body.querySelectorAll('h2, h3')));
+      } catch (error) {
+        return [];
+      }
+    }
+
+    /** Words that say a heading introduces the progression, or that it does not. */
+    static scoreHeading(text) {
+      const key = foldKey(text);
+      if (!key || NOT_A_RANK.test(key)) return -100;
+
+      let score = 0;
+      if (/cultivation|realm|rank|tier|stage|level|progress|power/.test(key)) score += 10;
+      /* Parallel systems that live on the same page and are not the ladder. */
+      if (/method|technique|skill|art\b|manual|flame|weapon|item|equipment|alchem|pill|beast|bloodline|spiritual strength|soul strength|relationship|abilit/.test(key)) {
+        score -= 20;
+      }
+      return score;
+    }
+
+    /**
+     * The run of elements under the best-scoring heading, up to the next
+     * heading of the same or higher rank.
+     */
+    static findLadderSection(body) {
+      const children = Array.prototype.slice.call(body.children || []);
+      let best = null;
+      let current = null;
+
+      for (const child of children) {
+        const tag = (child.tagName || '').toLowerCase();
+        if (tag === 'h2' || tag === 'h3') {
+          if (current && (!best || current.score > best.score)) best = current;
+          current = { score: RealmsGuide.scoreHeading(child.textContent || ''), nodes: [] };
+          continue;
+        }
+        if (current) current.nodes.push(child);
+      }
+      if (current && (!best || current.score > best.score)) best = current;
+
+      if (!best || best.score <= 0 || best.nodes.length === 0) return null;
+      return best.nodes;
+    }
+
+    /** Try each shape a ladder can take, within the given elements. */
+    static extractFrom(nodes) {
       const strategies = [
         RealmsGuide.fromOrderedList,
-        RealmsGuide.fromHeadings,
         RealmsGuide.fromTable,
         RealmsGuide.fromBulletList,
       ];
 
       for (const strategy of strategies) {
         try {
-          const steps = RealmsGuide.clean(strategy(body));
+          const steps = RealmsGuide.clean(strategy(nodes));
           if (steps.length >= 3) return steps;
         } catch (error) {
           /* ":scope" and friends are not universally available. Try the next
@@ -3907,59 +4089,88 @@
       return [];
     }
 
-    static fromOrderedList(body) {
-      const lists = body.querySelectorAll('ol');
-      for (const list of Array.prototype.slice.call(lists)) {
-        const items = list.querySelectorAll(':scope > li');
-        if (items.length >= 3) return RealmsGuide.textsOf(items);
-      }
-      return [];
-    }
-
-    static fromHeadings(body) {
-      const headings = body.querySelectorAll('h2, h3');
-      return RealmsGuide.textsOf(headings);
-    }
-
-    static fromBulletList(body) {
-      const lists = body.querySelectorAll('ul');
-      for (const list of Array.prototype.slice.call(lists)) {
-        const items = list.querySelectorAll(':scope > li');
-        if (items.length >= 3) return RealmsGuide.textsOf(items);
-      }
-      return [];
-    }
-
-    static fromTable(body) {
-      const table = body.querySelector('table');
-      if (!table) return [];
-      const rows = table.querySelectorAll('tr');
+    /** Every element of a kind inside any of these nodes, including the nodes. */
+    static collect(nodes, selector) {
       const out = [];
-      for (const row of Array.prototype.slice.call(rows)) {
-        const cell = row.querySelector('td, th');
-        if (!cell) continue;
-        out.push((cell.textContent || '').replace(/\s+/g, ' ').trim());
+      for (const node of nodes) {
+        if (!node || !node.querySelectorAll) continue;
+        if (node.matches && node.matches(selector)) out.push(node);
+        for (const found of Array.prototype.slice.call(node.querySelectorAll(selector))) {
+          out.push(found);
+        }
       }
       return out;
+    }
+
+    static fromOrderedList(nodes) {
+      for (const list of RealmsGuide.collect(nodes, 'ol')) {
+        const items = list.querySelectorAll(':scope > li');
+        if (items.length >= 3) return RealmsGuide.textsOf(items);
+      }
+      return [];
+    }
+
+    static fromBulletList(nodes) {
+      for (const list of RealmsGuide.collect(nodes, 'ul')) {
+        const items = list.querySelectorAll(':scope > li');
+        if (items.length >= 3) return RealmsGuide.textsOf(items);
+      }
+      return [];
+    }
+
+    /**
+     * Progression tables are usually a row per sub-step — nine stages of each
+     * of ten realms — with the realms themselves as numbered rows between them.
+     * When that pattern is there, those numbered rows are the ladder and the
+     * hundred sub-steps are noise.
+     */
+    static fromTable(nodes) {
+      const tables = RealmsGuide.collect(nodes, 'table');
+      if (tables.length === 0) return [];
+
+      const firstCells = [];
+      for (const row of Array.prototype.slice.call(tables[0].querySelectorAll('tr'))) {
+        const cell = row.querySelector('td, th');
+        if (!cell) continue;
+        firstCells.push((cell.textContent || '').replace(/\s+/g, ' ').trim());
+      }
+
+      const numbered = firstCells.filter(function (text) {
+        return /^\d{1,2}[.)]\s*\S/.test(text);
+      });
+      return numbered.length >= 3 ? numbered : firstCells;
     }
 
     static textsOf(nodes) {
       const out = [];
       for (const node of Array.prototype.slice.call(nodes)) {
-        /* Only the rung's own name, not the paragraph of description that
-         * often follows it inside the same list item. */
-        const raw = (node.textContent || '').replace(/\s+/g, ' ').trim();
-        const name = raw.split(/[:–—-]\s|\.\s/)[0].trim();
-        out.push(name);
+        out.push(RealmsGuide.rungText(node.textContent || ''));
       }
       return out;
+    }
+
+    /** A rung's own name, without its ordinal or its trailing description. */
+    static rungText(raw) {
+      let text = String(raw || '').replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
+
+      /* Our own numbering replaces the page's, so "3. Core Formation" would
+       * otherwise render as "3  3. Core Formation". */
+      const ordinal = text.match(/^\d{1,2}[.)]\s*(.+)$/);
+      if (ordinal) text = ordinal[1];
+
+      /* Cut a description, but only on a spaced dash or a sentence break — an
+       * unspaced dash or slash is part of names like "1-Star" and "Qi/Spirit". */
+      text = text.split(/\s[–—-]\s|\.\s|:\s/)[0];
+      return text.trim();
     }
 
     static clean(names) {
       const seen = new Set();
       const out = [];
       for (const name of names) {
-        const trimmed = String(name || '').replace(/\[\d+\]/g, '').trim();
+        /* Table rows arrive raw, list items arrive already tidied. Running this
+         * twice is harmless and means neither caller has to remember. */
+        const trimmed = RealmsGuide.rungText(name);
         if (trimmed.length < 2 || trimmed.length > 48) continue;
         if (NOT_A_RANK.test(trimmed)) continue;
         if (/^\d+$/.test(trimmed)) continue;
@@ -4070,6 +4281,7 @@
       this.currentTerm = '';
       this.observer = null;
       this.isScanning = false;
+      this.scanStartedAt = 0;
     }
 
     /* ------------------------------------------------------------- startup */
@@ -4089,6 +4301,7 @@
       this.panel = new Panel({
         spoilerGuard: this.spoilerGuard,
         onAction: guard('app.panelAction', this.handlePanelAction.bind(this)),
+        onClose: guard('app.panelClosed', this.revalidateHighlights.bind(this)),
       });
       this.settingsView = new SettingsView({
         settings: this.settings,
@@ -4279,9 +4492,29 @@
     /* ---------------------------------------------------------- scanning -- */
 
     /** Detect names, index them, paint them. */
+    /**
+     * Re-mark the chapter if the marks have gone.
+     *
+     * Called when a panel closes, because that is when the reader is most
+     * likely to have re-rendered the chapter underneath it, and a reader whose
+     * highlights vanished after looking one name up has no way of getting them
+     * back short of leaving the novel and coming in again.
+     */
+    revalidateHighlights() {
+      if (!this.settings.get('enabled') || !this.highlighter) return;
+      if (this.highlighter.isStillPainted(this.context.root)) return;
+      log('marks went missing; re-running');
+      this.scan();
+    }
+
     scan() {
-      if (this.isScanning) return;
+      /* A scan that somehow never finished must not wedge the tool forever. */
+      if (this.isScanning) {
+        if (Date.now() - this.scanStartedAt < 10000) return;
+        log('previous scan never finished; starting a new one');
+      }
       this.isScanning = true;
+      this.scanStartedAt = Date.now();
 
       const root = this.context.root;
       const text = (root && (root.innerText || root.textContent)) || '';
@@ -4519,13 +4752,24 @@
 
     /* ------------------------------------------------------------- events -- */
 
+    /**
+     * Listen on the document rather than the chapter element.
+     *
+     * A listener bound to the chapter container dies with it the moment the
+     * reader swaps that container out for the next chapter, and taps stop
+     * working with nothing to show why. The document outlives every re-render.
+     */
     bindTaps() {
       const self = this;
-      const root = this.context.root;
-      if (!root) return;
 
-      root.addEventListener('click', guard('app.tap', function (event) {
+      document.addEventListener('click', guard('app.tap', function (event) {
         if (!self.settings.get('enabled')) return;
+
+        const root = self.context.root;
+        if (!root || !event.target) return;
+        /* Ignore taps on our own UI, and anything outside the prose. */
+        if (event.target.closest && event.target.closest('.lorelens-ui')) return;
+        if (!root.contains(event.target)) return;
 
         /* The wrapping path gives us a real element to read the term off. */
         const marked = event.target.closest
@@ -4752,10 +4996,20 @@
 
       const repaint = debounce(guard('app.repaint', function () {
         const previousTitle = self.context.chapterTitle;
+        const previousRoot = self.context.root;
         self.context.detect();
+
+        /* If the reader swapped the whole container out, we have been watching
+         * a detached element ever since — no further mutation would ever reach
+         * us, so the next chapter would never get marked. */
+        if (self.context.root && self.context.root !== previousRoot) {
+          log('chapter container was replaced; re-attaching the observer');
+          self.observeRoot();
+        }
 
         if (self.context.chapterTitle !== previousTitle) {
           log('chapter changed:', self.context.chapterTitle);
+          self.settings.useNovel(self.context.novelKey);
           self.settings.advanceProgress(self.context.chapterNumber);
         }
         if (self.settings.get('enabled')) self.scan();
@@ -4772,8 +5026,18 @@
         }
       });
 
-      const root = this.context.root;
-      if (root) this.observer.observe(root, { childList: true, subtree: true });
+      this.observeRoot();
+    }
+
+    /** Point the chapter observer at the current root, wherever it moved to. */
+    observeRoot() {
+      if (!this.observer || !this.context.root) return;
+      try {
+        this.observer.disconnect();
+        this.observer.observe(this.context.root, { childList: true, subtree: true });
+      } catch (error) {
+        log('could not observe the chapter:', (error && error.message) || String(error));
+      }
     }
 
     /** Follow the reader when it changes theme, so the panel never clashes. */

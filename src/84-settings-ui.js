@@ -254,6 +254,11 @@
       const lines = [
         'LoreLens ' + VERSION,
         'novel: ' + (this.context.novelTitle || '(not detected)'),
+        /* If this changes between chapters, per-novel settings will not be
+         * found again and the reader gets asked for the wiki over and over.
+         * Having it in a bug report makes that diagnosable in one glance. */
+        'novel key: ' + this.context.novelKey,
+        'document.title: ' + (document.title || '(empty)'),
         'chapter: ' + (this.context.chapterTitle || '(not detected)') +
           ' → number ' + this.context.chapterNumber,
         'root: ' + (this.context.root ? this.context.root.tagName + '#' + (this.context.root.id || '') : 'NONE'),

@@ -77,21 +77,35 @@
 
 <script>
 /* Never hit the network from a preview page. Every title resolves. */
+/*
+  Deliberately the awkward shape: one article documenting three parallel
+  systems, with the progression table not the first on the page, sub-steps
+  between the real tiers, and a technique table that must not be mistaken for
+  the ladder. A real wiki laid out exactly like this once produced the wrong
+  answer, so the preview keeps it honest.
+*/
 const CULTIVATION_PAGE =
   '<div class="mw-parser-output">' +
   '<p>Cultivation in the Upper Realm is divided into nine realms. Each demands more ' +
   'of the body than the one before it, and fewer than one in a thousand pass the third.</p>' +
-  '<ol>' +
-  '<li>Qi Refining — drawing the first breath of the world</li>' +
-  '<li>Foundation Establishment</li>' +
-  '<li>Core Formation</li>' +
-  '<li>Nascent Soul</li>' +
-  '<li>Spirit Severing</li>' +
-  '<li>Dao Seeking</li>' +
-  '<li>Immortal Ascension</li>' +
-  '<li>Great Sacred Realm</li>' +
-  '<li>Eternal Sovereign</li>' +
-  '</ol><h2>References</h2></div>';
+  '<h2>Dou Qi Cultivation</h2>' +
+  '<table><tr><th>Level</th><th>Chapter</th></tr>' +
+  '<tr><td>1. Qi Refining</td><td>1</td></tr>' +
+  '<tr><td>1-Star</td><td>1</td></tr>' +
+  '<tr><td>2-Star</td><td>14</td></tr>' +
+  '<tr><td>2. Foundation Establishment</td><td>65</td></tr>' +
+  '<tr><td>3. Core Formation</td><td>159</td></tr>' +
+  '<tr><td>4. Nascent Soul</td><td>331</td></tr>' +
+  '<tr><td>5. Spirit Severing</td><td>521</td></tr>' +
+  '<tr><td>6. Dao Seeking</td><td>751</td></tr>' +
+  '<tr><td>7. Immortal Ascension</td><td>1011</td></tr>' +
+  '<tr><td>8. Great Sacred Realm</td><td>1231</td></tr>' +
+  '<tr><td>9. Eternal Sovereign</td><td>1644</td></tr>' +
+  '</table>' +
+  '<h2>Qi Methods</h2>' +
+  '<table><tr><th>Class</th></tr><tr><td>Huang/Yellow</td></tr>' +
+  '<tr><td>Xuan/Black</td></tr><tr><td>Di/Earth</td></tr><tr><td>Tian/Heaven</td></tr></table>' +
+  '<h2>References</h2></div>';
 
 window.fetch = function (url) {
   const params = new URLSearchParams(String(url).split('?')[1] || '');

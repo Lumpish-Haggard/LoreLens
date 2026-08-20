@@ -198,6 +198,52 @@ function run() {
   is(I.ReaderContext.parseChapterNumber('0862 - Something'), 862, 'parses a leading zero-padded number');
   is(I.ReaderContext.parseChapterNumber('A Quiet Interlude'), 0, 'returns 0 rather than guessing');
 
+  /* ------------------------------------------------------ novel identity */
+
+  /*
+    This decides the key that per-novel settings are filed under. If it is not
+    stable from one chapter to the next, the saved wiki is never found again and
+    the reader is asked for it over and over — which is exactly what happened
+    when the chapter suffix was only stripped if a separator preceded it.
+  */
+  section('novel identity');
+
+  const norm = I.ReaderContext.normalizeNovelTitle;
+
+  is(norm('Battle Through The Heavens Chapter 412'), 'Battle Through The Heavens',
+    'strips a chapter suffix with no separator before it');
+  is(norm('Battle Through The Heavens - Chapter 413'), 'Battle Through The Heavens',
+    'strips a chapter suffix with a separator');
+  is(norm('Shadow Slave | Ch. 88: The Nightmare'), 'Shadow Slave',
+    'strips an abbreviated chapter and its title');
+  is(norm('Reverend Insanity Vol. 3 Chapter 7'), 'Reverend Insanity',
+    'strips a volume as well as a chapter');
+  is(norm('Lord of the Mysteries 1140'), 'Lord of the Mysteries',
+    'strips a bare trailing number');
+  is(norm('Omniscient Reader'), 'Omniscient Reader',
+    'leaves a title with no chapter marker alone');
+
+  /* The property that actually matters: consecutive chapters agree. */
+  is(
+    norm('Battle Through The Heavens Chapter 412') === norm('Battle Through The Heavens Chapter 413'),
+    true,
+    'two consecutive chapters produce the same novel identity',
+  );
+
+  /* And the settings that hang off it survive a fresh start. */
+  const persistStore = new I.Store();
+  const first = new I.Settings(persistStore);
+  first.useNovel('battle-through-the-heavens');
+  first.set('wiki', 'btth');
+
+  const second = new I.Settings(persistStore);
+  second.useNovel('battle-through-the-heavens');
+  is(second.get('wiki'), 'btth', 'a chosen wiki is still there on the next chapter');
+
+  const otherNovel = new I.Settings(persistStore);
+  otherNovel.useNovel('a-different-book');
+  is(otherNovel.get('wiki'), '', 'a different novel does not inherit that wiki');
+
   /* -------------------------------------------------------- name detector */
 
   section('name detection');
@@ -355,6 +401,27 @@ function run() {
   is(chapterRoot.querySelector('code').textContent, 'Gu Changge', 'text inside code is untouched');
   is(chapterRoot.querySelector('a[href="#nowhere"]').children.length, 0, 'no element was inserted inside the link');
 
+  /*
+    Recovery. Marks are anchored to text nodes, so a reader that re-renders the
+    chapter — which it may well do while a panel is covering it — detaches every
+    range and the marks vanish with no event to announce it. Closing the panel
+    has to notice and put them back, or the only cure is leaving the novel.
+  */
+  const paintedBefore = app.highlighter.ranges.length;
+  ok(app.highlighter.isStillPainted(chapterRoot), 'marks report themselves as present');
+
+  const detached = document.createElement('div');
+  detached.innerHTML = '<p>Gu Changge walked away.</p>';
+  const strandedRange = document.createRange();
+  strandedRange.setStart(detached.firstChild.firstChild, 0);
+  strandedRange.setEnd(detached.firstChild.firstChild, 10);
+  const survivor = app.highlighter.ranges.slice();
+  app.highlighter.ranges = [{ range: strandedRange, term: 'Gu Changge', confidence: 3 }];
+  notOk(app.highlighter.isStillPainted(chapterRoot),
+    'a range pointing outside the chapter is reported as lost');
+  app.highlighter.ranges = survivor;
+  is(app.highlighter.ranges.length, paintedBefore, 'the real ranges are untouched by the check');
+
   /* And the wrapping path has to work too, since old WebViews will take it. */
   const wrapIndex = new I.EntityIndex();
   wrapIndex.add({ name: 'Tao Yao', aliases: [], entity: null, confidence: I.CONFIDENCE.CONFIRMED });
@@ -410,6 +477,54 @@ function run() {
 
   const intro = I.RealmsGuide.parseIntro(orderedPage);
   ok(intro.indexOf('divided into a number of realms') >= 0, 'reads an intro paragraph');
+
+  /*
+    The shape that broke on a real wiki: one article documenting several
+    parallel systems, where the progression is not the first table on the page.
+    The ladder must come from the cultivation section, not the technique one.
+  */
+  const multiSystemPage =
+    '<div class="mw-parser-output">' +
+    '<h2>Dou Qi Cultivation</h2>' +
+    '<table><tr><th>Level</th><th>Chapter</th></tr>' +
+    '<tr><td>0. Dou Zhi Qi</td><td>-</td></tr>' +
+    '<tr><td>1st Stage</td><td>1</td></tr>' +
+    '<tr><td>2nd Stage</td><td>4</td></tr>' +
+    '<tr><td>1. Dou Zhe</td><td>65</td></tr>' +
+    '<tr><td>1-Star</td><td>65</td></tr>' +
+    '<tr><td>2-Star</td><td>70</td></tr>' +
+    '<tr><td>2. Dou Shi</td><td>159</td></tr>' +
+    '<tr><td>3. Da Dou Shi</td><td>331</td></tr>' +
+    '</table>' +
+    '<h2>Qi Methods</h2>' +
+    '<table><tr><th>Class</th></tr>' +
+    '<tr><td>Huang/Yellow</td></tr><tr><td>Xuan/Black</td></tr>' +
+    '<tr><td>Di/Earth</td></tr><tr><td>Tian/Heaven</td></tr></table>' +
+    '<h2>Alchemist Tier</h2><table><tr><td>Tier 1</td></tr>' +
+    '<tr><td>Tier 2</td></tr><tr><td>Tier 3</td></tr></table>' +
+    '<h2>Trivia</h2><p>things</p>' +
+    '</div>';
+
+  const multi = I.RealmsGuide.parseLadder(multiSystemPage);
+  ok(multi.indexOf('Dou Zhe') >= 0, 'takes the ladder from the cultivation section');
+  notOk(multi.indexOf('Huang/Yellow') >= 0, 'does not take it from the technique section');
+  notOk(multi.indexOf('Qi Methods') >= 0, 'a section heading is not itself a rung');
+  notOk(multi.indexOf('1-Star') >= 0, 'sub-steps are dropped when numbered tiers are present');
+  is(multi[0], 'Dou Zhi Qi', 'strips the ordinal the page supplied');
+  is(multi.length, 4, 'keeps only the four numbered tiers');
+
+  is(I.RealmsGuide.scoreHeading('Dou Qi Cultivation') > I.RealmsGuide.scoreHeading('Qi Methods'),
+    true, 'a cultivation heading outscores a technique heading');
+  ok(I.RealmsGuide.scoreHeading('References') < 0, 'boilerplate headings score negative');
+
+  ok(I.RealmsGuide.isWorldLevelPage('Cultivation'), 'a top-level page is world level');
+  notOk(I.RealmsGuide.isWorldLevelPage('Xiao Yan/Cultivation'),
+    'a character subpage is not the world power system');
+  notOk(I.RealmsGuide.isWorldLevelPage('Category:Cultivation'), 'a category is not an article');
+
+  is(I.RealmsGuide.rungText('7-Star'), '7-Star', 'an unspaced dash is part of the name');
+  is(I.RealmsGuide.rungText('Qi Refining — the first steps'), 'Qi Refining', 'a spaced dash cuts a description');
+  is(I.RealmsGuide.rungText('3. Core Formation'), 'Core Formation', 'an ordinal prefix is removed');
 
   const headingPage =
     '<div class="mw-parser-output">' +

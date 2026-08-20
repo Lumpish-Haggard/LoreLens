@@ -127,22 +127,48 @@
         if (element) candidates.push(element.getAttribute(attribute));
       }
 
-      /* Then the document title, minus any chapter suffix. */
-      if (document.title) {
-        candidates.push(
-          document.title
-            .replace(/[-–—|:]\s*(chapter|ch\.?|episode|ep\.?)\s*[\d.]+.*$/i, '')
-            .replace(/\s*[-–—|]\s*(LNReader|Reader)\s*$/i, ''),
-        );
-      }
+      if (document.title) candidates.push(document.title);
 
       for (const candidate of candidates) {
-        const cleaned = String(candidate || '').replace(/\s+/g, ' ').trim();
+        const cleaned = ReaderContext.normalizeNovelTitle(candidate);
         if (cleaned.length >= 2 && cleaned.length <= 120 && !/^chapter\b/i.test(cleaned)) {
           return cleaned;
         }
       }
       return '';
+    }
+
+    /**
+     * Strip the chapter part off a title, leaving the book.
+     *
+     * This decides the key that per-novel settings are filed under, which makes
+     * it far more load-bearing than it looks. An earlier version only stripped a
+     * chapter suffix when a separator preceded it, so a reader whose title reads
+     * "Some Novel Chapter 412" kept the number — meaning the key changed on
+     * every single chapter, no saved setting was ever found again, and the tool
+     * asked which wiki to use over and over. Hence: no separator required, and
+     * every candidate goes through here rather than only the document title.
+     */
+    static normalizeNovelTitle(raw) {
+      let text = String(raw == null ? '' : raw).replace(/\s+/g, ' ').trim();
+
+      /* The reader's own name, if it appended one. */
+      text = text.replace(/\s*[-–—|]\s*(LNReader|Reader)\s*$/i, '');
+
+      /* "Vol. 3", "Book 2" anywhere in the string. */
+      text = text.replace(/[\s\-–—|:,]*\b(?:volume|vol\.?|book)\s*#?\s*\d+\b/gi, ' ');
+
+      /* A chapter marker and everything after it, with or without a separator
+       * in front — "X Chapter 412", "X - Ch. 412: Title", "X | Episode 7". */
+      text = text.replace(
+        /[\s\-–—|:,]*\b(?:chapters?|chap\.?|ch\.?|episodes?|ep\.?|parts?)\s*#?\s*\d+(?:\.\d+)?\b[\s\S]*$/i,
+        '',
+      );
+
+      /* A bare trailing number, as in "Some Novel 412" or "Some Novel #412". */
+      text = text.replace(/[\s\-–—|:,]*#?\d{1,5}\s*$/, '');
+
+      return text.replace(/[\s\-–—|:,]+$/, '').replace(/\s+/g, ' ').trim();
     }
 
     findChapterTitle() {

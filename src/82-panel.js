@@ -13,6 +13,7 @@
     constructor(options) {
       this.guard = options.spoilerGuard;
       this.onAction = options.onAction || function () {};
+      this.onClose = options.onClose || function () {};
       this.isOpen = false;
       this.lastFocused = null;
       this.build();
@@ -129,6 +130,7 @@
     }
 
     close() {
+      const wasOpen = this.isOpen;
       this.isOpen = false;
       this.scrim.classList.remove('is-open');
       this.panel.classList.remove('is-open');
@@ -140,6 +142,9 @@
           /* the element went away with the chapter */
         }
       }
+      /* Coming back to the chapter is the moment to check the marks survived
+       * whatever the reader did while the panel was covering them. */
+      if (wasOpen) this.onClose();
     }
 
     setContent(html) {

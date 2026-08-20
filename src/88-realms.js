@@ -164,10 +164,26 @@
           if (title) return title;
           /* Nothing obvious — ask the wiki's own search. */
           return self.wiki.searchTitle('cultivation realms ranks power system').then(function (results) {
-            if (!results || results.length === 0) return null;
-            return results[0].title;
+            const usable = (results || []).filter(function (result) {
+              return RealmsGuide.isWorldLevelPage(result.title);
+            });
+            return usable.length > 0 ? usable[0].title : null;
           });
         });
+    }
+
+    /**
+     * A page about the world's system, rather than one character's progress
+     * through it. Wikis file the latter as subpages — "Xiao Yan/Cultivation" —
+     * and searching for cultivation finds those first, because there are
+     * dozens of them and only one of the real thing.
+     */
+    static isWorldLevelPage(title) {
+      const text = String(title || '');
+      if (!text || text.indexOf('/') >= 0) return false;
+      if (/^(category|template|file|user|talk|forum):/i.test(text)) return false;
+      if (/^list of/i.test(text)) return false;
+      return true;
     }
 
     /* ----------------------------------------------------------- parsing -- */
@@ -212,16 +228,79 @@
         if (element.parentNode) element.parentNode.removeChild(element);
       }
 
+      /* A long article usually documents several parallel systems — the
+       * cultivation ladder, the techniques, the alchemy tiers, the artefacts.
+       * Pick the section that is actually the progression before reading
+       * anything, or a page like Battle Through the Heavens' hands back its
+       * technique classes instead of its realms. */
+      const scoped = RealmsGuide.findLadderSection(body);
+      if (scoped) {
+        const steps = RealmsGuide.extractFrom(scoped);
+        if (steps.length >= 3) return steps;
+      }
+
+      const whole = RealmsGuide.extractFrom([body]);
+      if (whole.length >= 3) return whole;
+
+      /* Only now are the section headings themselves worth treating as rungs —
+       * on a page that lists each realm under its own heading, they are the
+       * ladder, but on any page with a richer structure they are furniture. */
+      try {
+        return RealmsGuide.clean(RealmsGuide.textsOf(body.querySelectorAll('h2, h3')));
+      } catch (error) {
+        return [];
+      }
+    }
+
+    /** Words that say a heading introduces the progression, or that it does not. */
+    static scoreHeading(text) {
+      const key = foldKey(text);
+      if (!key || NOT_A_RANK.test(key)) return -100;
+
+      let score = 0;
+      if (/cultivation|realm|rank|tier|stage|level|progress|power/.test(key)) score += 10;
+      /* Parallel systems that live on the same page and are not the ladder. */
+      if (/method|technique|skill|art\b|manual|flame|weapon|item|equipment|alchem|pill|beast|bloodline|spiritual strength|soul strength|relationship|abilit/.test(key)) {
+        score -= 20;
+      }
+      return score;
+    }
+
+    /**
+     * The run of elements under the best-scoring heading, up to the next
+     * heading of the same or higher rank.
+     */
+    static findLadderSection(body) {
+      const children = Array.prototype.slice.call(body.children || []);
+      let best = null;
+      let current = null;
+
+      for (const child of children) {
+        const tag = (child.tagName || '').toLowerCase();
+        if (tag === 'h2' || tag === 'h3') {
+          if (current && (!best || current.score > best.score)) best = current;
+          current = { score: RealmsGuide.scoreHeading(child.textContent || ''), nodes: [] };
+          continue;
+        }
+        if (current) current.nodes.push(child);
+      }
+      if (current && (!best || current.score > best.score)) best = current;
+
+      if (!best || best.score <= 0 || best.nodes.length === 0) return null;
+      return best.nodes;
+    }
+
+    /** Try each shape a ladder can take, within the given elements. */
+    static extractFrom(nodes) {
       const strategies = [
         RealmsGuide.fromOrderedList,
-        RealmsGuide.fromHeadings,
         RealmsGuide.fromTable,
         RealmsGuide.fromBulletList,
       ];
 
       for (const strategy of strategies) {
         try {
-          const steps = RealmsGuide.clean(strategy(body));
+          const steps = RealmsGuide.clean(strategy(nodes));
           if (steps.length >= 3) return steps;
         } catch (error) {
           /* ":scope" and friends are not universally available. Try the next
@@ -231,59 +310,88 @@
       return [];
     }
 
-    static fromOrderedList(body) {
-      const lists = body.querySelectorAll('ol');
-      for (const list of Array.prototype.slice.call(lists)) {
-        const items = list.querySelectorAll(':scope > li');
-        if (items.length >= 3) return RealmsGuide.textsOf(items);
-      }
-      return [];
-    }
-
-    static fromHeadings(body) {
-      const headings = body.querySelectorAll('h2, h3');
-      return RealmsGuide.textsOf(headings);
-    }
-
-    static fromBulletList(body) {
-      const lists = body.querySelectorAll('ul');
-      for (const list of Array.prototype.slice.call(lists)) {
-        const items = list.querySelectorAll(':scope > li');
-        if (items.length >= 3) return RealmsGuide.textsOf(items);
-      }
-      return [];
-    }
-
-    static fromTable(body) {
-      const table = body.querySelector('table');
-      if (!table) return [];
-      const rows = table.querySelectorAll('tr');
+    /** Every element of a kind inside any of these nodes, including the nodes. */
+    static collect(nodes, selector) {
       const out = [];
-      for (const row of Array.prototype.slice.call(rows)) {
-        const cell = row.querySelector('td, th');
-        if (!cell) continue;
-        out.push((cell.textContent || '').replace(/\s+/g, ' ').trim());
+      for (const node of nodes) {
+        if (!node || !node.querySelectorAll) continue;
+        if (node.matches && node.matches(selector)) out.push(node);
+        for (const found of Array.prototype.slice.call(node.querySelectorAll(selector))) {
+          out.push(found);
+        }
       }
       return out;
+    }
+
+    static fromOrderedList(nodes) {
+      for (const list of RealmsGuide.collect(nodes, 'ol')) {
+        const items = list.querySelectorAll(':scope > li');
+        if (items.length >= 3) return RealmsGuide.textsOf(items);
+      }
+      return [];
+    }
+
+    static fromBulletList(nodes) {
+      for (const list of RealmsGuide.collect(nodes, 'ul')) {
+        const items = list.querySelectorAll(':scope > li');
+        if (items.length >= 3) return RealmsGuide.textsOf(items);
+      }
+      return [];
+    }
+
+    /**
+     * Progression tables are usually a row per sub-step — nine stages of each
+     * of ten realms — with the realms themselves as numbered rows between them.
+     * When that pattern is there, those numbered rows are the ladder and the
+     * hundred sub-steps are noise.
+     */
+    static fromTable(nodes) {
+      const tables = RealmsGuide.collect(nodes, 'table');
+      if (tables.length === 0) return [];
+
+      const firstCells = [];
+      for (const row of Array.prototype.slice.call(tables[0].querySelectorAll('tr'))) {
+        const cell = row.querySelector('td, th');
+        if (!cell) continue;
+        firstCells.push((cell.textContent || '').replace(/\s+/g, ' ').trim());
+      }
+
+      const numbered = firstCells.filter(function (text) {
+        return /^\d{1,2}[.)]\s*\S/.test(text);
+      });
+      return numbered.length >= 3 ? numbered : firstCells;
     }
 
     static textsOf(nodes) {
       const out = [];
       for (const node of Array.prototype.slice.call(nodes)) {
-        /* Only the rung's own name, not the paragraph of description that
-         * often follows it inside the same list item. */
-        const raw = (node.textContent || '').replace(/\s+/g, ' ').trim();
-        const name = raw.split(/[:–—-]\s|\.\s/)[0].trim();
-        out.push(name);
+        out.push(RealmsGuide.rungText(node.textContent || ''));
       }
       return out;
+    }
+
+    /** A rung's own name, without its ordinal or its trailing description. */
+    static rungText(raw) {
+      let text = String(raw || '').replace(/\[\d+\]/g, '').replace(/\s+/g, ' ').trim();
+
+      /* Our own numbering replaces the page's, so "3. Core Formation" would
+       * otherwise render as "3  3. Core Formation". */
+      const ordinal = text.match(/^\d{1,2}[.)]\s*(.+)$/);
+      if (ordinal) text = ordinal[1];
+
+      /* Cut a description, but only on a spaced dash or a sentence break — an
+       * unspaced dash or slash is part of names like "1-Star" and "Qi/Spirit". */
+      text = text.split(/\s[–—-]\s|\.\s|:\s/)[0];
+      return text.trim();
     }
 
     static clean(names) {
       const seen = new Set();
       const out = [];
       for (const name of names) {
-        const trimmed = String(name || '').replace(/\[\d+\]/g, '').trim();
+        /* Table rows arrive raw, list items arrive already tidied. Running this
+         * twice is harmless and means neither caller has to remember. */
+        const trimmed = RealmsGuide.rungText(name);
         if (trimmed.length < 2 || trimmed.length > 48) continue;
         if (NOT_A_RANK.test(trimmed)) continue;
         if (/^\d+$/.test(trimmed)) continue;
