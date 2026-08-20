@@ -198,6 +198,39 @@ function run() {
   is(I.ReaderContext.parseChapterNumber('0862 - Something'), 862, 'parses a leading zero-padded number');
   is(I.ReaderContext.parseChapterNumber('A Quiet Interlude'), 0, 'returns 0 rather than guessing');
 
+  /* -------------------------------------------------- pinned wiki block */
+
+  /*
+    The reader gives this page no origin, so the browser refuses every
+    persistent store and the reader's own bridge has nothing to save into. A
+    wiki chosen in the panel lasts for the sitting and no longer. The WIKIS
+    block at the top of the file is the only setting here that survives closing
+    the novel, so its matching has to be forgiving.
+  */
+  section('pinned wiki block');
+
+  I.WIKIS['battle through the heavens'] = 'battle-through-the-heavens';
+  I.WIKIS['shadow slave'] = 'shadowslave';
+
+  is(
+    I.LoreLensApp.findPinnedWiki('Fights Break Sphere: Battle Through The Heavens fan sequel'),
+    'battle-through-the-heavens',
+    'matches on any distinctive part of the title, not the whole thing',
+  );
+  is(I.LoreLensApp.findPinnedWiki('SHADOW SLAVE'), 'shadowslave', 'matching ignores case');
+  is(I.LoreLensApp.findPinnedWiki('Some Other Novel'), '', 'an unknown novel matches nothing');
+  is(I.LoreLensApp.findPinnedWiki(''), '', 'an empty title matches nothing');
+
+  I.WIKIS['battle through the heavens special'] = 'btth-special';
+  is(
+    I.LoreLensApp.findPinnedWiki('Battle Through The Heavens Special Edition'),
+    'btth-special',
+    'the longest matching entry wins, so a specific line beats a general one',
+  );
+  delete I.WIKIS['battle through the heavens special'];
+  delete I.WIKIS['battle through the heavens'];
+  delete I.WIKIS['shadow slave'];
+
   /* ------------------------------------------------------ novel identity */
 
   /*
@@ -580,6 +613,39 @@ function run() {
   document.body.appendChild(scratch);
   wrapper.run(scratch);
 
+  /* ------------------------------------------------- recall across chapters */
+
+  /*
+    The reported symptom: "go to chapter 14 and many names lose their highlight,
+    chapter 15 brings some back". The index was built only from names the
+    current chapter mentions often enough for detection to call them names —
+    two occurrences at the default setting. A character already looked up and
+    confirmed against the wiki therefore went unmarked in any chapter that
+    mentioned them once, and marks appeared and vanished as pages turned.
+  */
+  section('recall across chapters');
+
+  app.wiki.use('recalltest');
+  app.store.write('entry:recalltest:mentioned once', {
+    name: 'Mentioned Once',
+    aliases: ['The Quiet One'],
+    sections: [{ title: 'Who this is', body: 'Someone established long ago.', alwaysSafe: true }],
+    tags: [],
+    source: 'wiki',
+  }, 1);
+
+  app.index = new I.EntityIndex();
+  app.highlighter.index = app.index;
+  app.seedIndexFromCache();
+
+  ok(app.index.lookup('Mentioned Once'), 'a name known from an earlier chapter is indexed');
+  is(app.index.confidenceOf('Mentioned Once'), I.CONFIDENCE.CONFIRMED,
+    'and it is confirmed, not a guess, so it is drawn fully');
+  ok(app.index.lookup('The Quiet One'), 'its aliases come back too');
+  ok(app.index.lookup('mentioned once'), 'the term originally tapped is indexed as well');
+
+  app.store.remove('entry:recalltest:mentioned once');
+
   /* ------------------------------------------------------------ escaping */
 
   section('escaping');
@@ -697,6 +763,26 @@ function run() {
   notOk(headerLadder.indexOf('Level') >= 0, 'nor is a <th> header cell');
   ok(headerLadder.indexOf('Dou Wang') >= 0, 'the larger table wins over an earlier small one');
   is(headerLadder.length, 5, 'and yields exactly its five data rows');
+
+  /*
+    A small summary table near the top of an article must not beat the full
+    progression further down. Returning the first result that cleared three
+    rungs produced a three-rung ladder of only the highest realms on a page
+    listing dozens.
+  */
+  const smallThenLargePage =
+    '<div class="mw-parser-output">' +
+    '<h2>Cultivation</h2>' +
+    '<table><tr><td>Peak Dou Zun</td></tr><tr><td>Ban Sheng</td></tr>' +
+    '<tr><td>Half Step Dou Di</td></tr></table>' +
+    '<h2>Other notes</h2>' +
+    '<ol><li>Dou Zhe</li><li>Dou Shi</li><li>Da Dou Shi</li><li>Dou Ling</li>' +
+    '<li>Dou Wang</li><li>Dou Huang</li><li>Dou Zong</li><li>Dou Zun</li></ol>' +
+    '</div>';
+
+  const preferred = I.RealmsGuide.parseLadder(smallThenLargePage);
+  ok(preferred.length >= 8, 'a much longer ladder elsewhere beats a short section match');
+  ok(preferred.indexOf('Dou Wang') >= 0, 'and it is the full progression that is returned');
 
   const introText = I.RealmsGuide.parseIntro(headerTablePage);
   is(introText.indexOf('Official Translations'), -1,

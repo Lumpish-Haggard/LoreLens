@@ -259,13 +259,25 @@
        * anything, or a page like Battle Through the Heavens' hands back its
        * technique classes instead of its realms. */
       const scoped = RealmsGuide.findLadderSection(body);
-      if (scoped) {
-        const steps = RealmsGuide.extractFrom(scoped);
-        if (steps.length >= 3) return steps;
-      }
+      const fromSection = scoped ? RealmsGuide.extractFrom(scoped) : [];
+      const fromWhole = RealmsGuide.extractFrom([body]);
 
-      const whole = RealmsGuide.extractFrom([body]);
-      if (whole.length >= 3) return whole;
+      /*
+       * Take the better of the two rather than the first that clears the bar.
+       * Returning as soon as a section produced three rungs meant a small
+       * summary table near the top of an article beat the full progression
+       * further down — observed producing a three-rung ladder of only the
+       * highest realms on a page that lists dozens. A section match is worth
+       * something, so it wins ties and near-ties, but not by a wide margin.
+       */
+      const best = fromWhole.length > fromSection.length * 2 ? fromWhole : fromSection;
+      if (best.length >= 3) {
+        log('ladder: section gave', String(fromSection.length),
+          'rungs, whole page gave', String(fromWhole.length),
+          '- using', String(best.length));
+        return best;
+      }
+      if (fromWhole.length >= 3) return fromWhole;
 
       /* Only now are the section headings themselves worth treating as rungs —
        * on a page that lists each realm under its own heading, they are the

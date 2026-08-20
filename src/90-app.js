@@ -238,6 +238,15 @@
      * after the first chapter of a book.
      */
     resolveWiki() {
+      /* A line in the WIKIS block at the top of the file wins over everything,
+       * because it is the only setting here that survives closing the novel. */
+      const pinned = LoreLensApp.findPinnedWiki(this.context.novelTitle);
+      if (pinned) {
+        this.wiki.use(pinned);
+        log('wiki pinned in the WIKIS block:', pinned);
+        return Promise.resolve(pinned);
+      }
+
       const chosen = this.settings.get('wiki');
       if (chosen) {
         this.wiki.use(chosen);
@@ -352,6 +361,8 @@
       const root = this.context.root;
       const text = (root && (root.innerText || root.textContent)) || '';
 
+      this.seedIndexFromCache();
+
       const candidates = this.detector.detect(text);
       for (const candidate of candidates) {
         /* A name we have looked up before, in any chapter, is already known —
@@ -386,6 +397,78 @@
         }
         self.prefetch(candidates);
       });
+    }
+
+    /**
+     * Match the novel against the WIKIS block at the top of the file.
+     *
+     * Matching on a substring rather than the whole title on purpose: reader
+     * titles carry all sorts of extra — a fan work naming its premise, a
+     * translator's tag — and asking someone to reproduce that exactly would
+     * make the one durable setting the most fragile one.
+     */
+    static findPinnedWiki(novelTitle) {
+      const title = foldKey(novelTitle);
+      if (!title) return '';
+
+      let bestKey = '';
+      let best = '';
+      for (const pattern of Object.keys(WIKIS)) {
+        const needle = foldKey(pattern);
+        if (!needle || title.indexOf(needle) < 0) continue;
+        /* Longest match wins, so a specific entry beats a general one. */
+        if (needle.length > bestKey.length) {
+          bestKey = needle;
+          best = String(WIKIS[pattern] || '').trim();
+        }
+      }
+      return best;
+    }
+
+    /**
+     * Put every name we already know about this novel into the index, whether
+     * or not this chapter happens to mention it twice.
+     *
+     * This is the difference between marks that stay put and marks that flicker
+     * chapter to chapter. Detection needs a name to recur before it will call it
+     * a name — a reasonable rule for guessing, and completely wrong for a name
+     * we have already looked up and confirmed against the wiki. Without this,
+     * a character established fifty chapters ago goes unmarked in any chapter
+     * that mentions them only once, and the reader sees marks appear and vanish
+     * as they turn pages, which is exactly what was reported.
+     */
+    seedIndexFromCache() {
+      if (!this.wiki.subdomain) return;
+
+      const prefix = 'entry:' + this.wiki.subdomain + ':';
+      const keys = this.store.keysUnder(prefix);
+      let recalled = 0;
+
+      for (const key of keys) {
+        const entity = this.store.read(key);
+        if (!entity || !entity.name) continue;
+        this.index.add({
+          name: entity.name,
+          aliases: entity.aliases || [],
+          entity: entity,
+          confidence: CONFIDENCE.CONFIRMED,
+        });
+        /* The term the reader originally tapped may differ from the article
+         * title — "Young Master Gu" against "Gu Changge" — and both should
+         * light up. The cache key carries the original. */
+        const original = key.slice(prefix.length);
+        if (original && foldKey(original) !== foldKey(entity.name)) {
+          this.index.add({
+            name: original,
+            aliases: [],
+            entity: entity,
+            confidence: CONFIDENCE.CONFIRMED,
+          });
+        }
+        recalled += 1;
+      }
+
+      if (recalled > 0) log('recalled', String(recalled), 'known names from earlier chapters');
     }
 
     readCachedEntity(term) {

@@ -32,6 +32,31 @@
 (function lorelensMain() {
   'use strict';
 
+  /* ===========================================================================
+   *  THE ONLY THING IN THIS FILE WORTH EDITING
+   *
+   *  Which wiki belongs to which novel. Add a line and it sticks for good.
+   *
+   *      'novel name, or any distinctive part of it': 'wiki-subdomain'
+   *
+   *  The subdomain is the part before .fandom.com, so
+   *  https://shadowslave.fandom.com is 'shadowslave'. Matching ignores case
+   *  and matches on any part of the title, so a few words is plenty.
+   *
+   *  You can also set the wiki from the settings panel inside the reader, and
+   *  for a single sitting that works fine. It will not survive closing the
+   *  novel and opening it again, and that is not a bug we can fix: the reader
+   *  hands the page to the WebView with no origin, which leaves the browser
+   *  refusing every kind of persistent storage, and the reader's own bridge
+   *  offers nothing to save into. A line here is the durable version.
+   * ========================================================================= */
+
+  const WIKIS = {
+    // 'battle through the heavens': 'battle-through-the-heavens',
+    // 'shadow slave': 'shadowslave',
+    // 'reverend insanity': 'reverendinsanity',
+  };
+
   /* Readers re-inject custom scripts on every chapter, and some do it more than
    * once per chapter. A second run should pick up the new text, not build a
    * second copy of the whole UI on top of the first. */
@@ -777,6 +802,26 @@
       return removed;
     }
 
+    /**
+     * Every logical key we hold that starts with `prefix`, across all backends.
+     *
+     * Used to recall everything already known about a novel at the start of a
+     * chapter, rather than only what the current chapter happens to mention.
+     */
+    keysUnder(prefix) {
+      const full = STORAGE_PREFIX + prefix;
+      const seen = new Set();
+      for (const entry of this.backends) {
+        for (const fullKey of this.ownKeys(entry.store)) {
+          if (fullKey.indexOf(full) === 0) seen.add(fullKey.slice(STORAGE_PREFIX.length));
+        }
+      }
+      for (const key of this.memory.keys()) {
+        if (key.indexOf(prefix) === 0) seen.add(key);
+      }
+      return Array.from(seen);
+    }
+
     /** Rough size of what we are occupying, for the settings panel. */
     describeUsage() {
       let bytes = 0;
@@ -1073,6 +1118,28 @@
     findNovelTitle() {
       const candidates = [];
 
+      /*
+       * LNReader wraps the pasted script in a function that declares
+       * `novelName` and `chapterName` just above it:
+       *
+       *     async function fn(){
+       *       let novelName = "...";
+       *       let chapterName = "...";
+       *       ...
+       *       <your script here>
+       *     }
+       *
+       * So they are simply in scope, and they are the reader's own answer
+       * rather than anything we inferred. `document.title` is empty in that
+       * WebView, which is what made this worth finding. `typeof` keeps this
+       * safe anywhere the variables do not exist.
+       */
+      try {
+        if (typeof novelName === 'string' && novelName) candidates.push(novelName);
+      } catch (error) {
+        /* not running inside that wrapper */
+      }
+
       /* Some readers hand the page a data object. If one exists, believe it. */
       const bridge = window.reader || window.novel || null;
       if (bridge) {
@@ -1133,6 +1200,13 @@
     }
 
     findChapterTitle() {
+      /* Same wrapper as findNovelTitle: the reader declares this for us. */
+      try {
+        if (typeof chapterName === 'string' && chapterName) return chapterName.trim();
+      } catch (error) {
+        /* not running inside that wrapper */
+      }
+
       const bridge = window.reader || null;
       if (bridge && bridge.chapter && bridge.chapter.name) {
         return String(bridge.chapter.name).trim();
@@ -3634,7 +3708,25 @@
         (this.wiki.subdomain
           ? 'Currently using <strong>' + escapeHtml(this.wiki.subdomain) + '.fandom.com</strong>.'
           : 'No wiki found yet.') +
-        '</p></div>' +
+        '</p>' +
+
+        /* Say plainly that this will not last, and give the line that does.
+         * The reader gives this page no origin, so the browser refuses every
+         * persistent store, and its own bridge has nothing to save into —
+         * setting this again on every visit is otherwise the experience. */
+        (this.wiki.subdomain
+          ? '<p class="lorelens-help">This is remembered while you stay in the novel, but ' +
+            '<strong>not</strong> after you close it — your reader gives this page no ' +
+            'storage. To make it permanent, add this line to the <code>WIKIS</code> block ' +
+            'at the top of lorelens.js:</p>' +
+            '<pre class="lorelens-diagnostics">' +
+            escapeHtml(
+              "  '" + SettingsView.pinKeyFor(this.context.novelTitle) + "': '" +
+              this.wiki.subdomain + "',",
+            ) +
+            '</pre>'
+          : '') +
+        '</div>' +
 
         /* Reading position, which drives the spoiler guard. */
         '<div class="lorelens-field">' +
@@ -3732,6 +3824,18 @@
       this.panel.setContent(html);
       this.bind();
       this.panel.open();
+    }
+
+    /**
+     * A short, distinctive phrase from the novel's title to use as the WIKIS
+     * key. The whole title would work but is unpleasant to retype off a phone
+     * screen, and matching is on substrings anyway, so a few words is enough.
+     */
+    static pinKeyFor(novelTitle) {
+      const words = foldKey(novelTitle).split(' ').filter(function (word) {
+        return word.length > 2 && !STOPWORDS.has(word);
+      });
+      return words.slice(0, 4).join(' ') || foldKey(novelTitle);
     }
 
     static option(value, label, current) {
@@ -4324,13 +4428,25 @@
        * anything, or a page like Battle Through the Heavens' hands back its
        * technique classes instead of its realms. */
       const scoped = RealmsGuide.findLadderSection(body);
-      if (scoped) {
-        const steps = RealmsGuide.extractFrom(scoped);
-        if (steps.length >= 3) return steps;
-      }
+      const fromSection = scoped ? RealmsGuide.extractFrom(scoped) : [];
+      const fromWhole = RealmsGuide.extractFrom([body]);
 
-      const whole = RealmsGuide.extractFrom([body]);
-      if (whole.length >= 3) return whole;
+      /*
+       * Take the better of the two rather than the first that clears the bar.
+       * Returning as soon as a section produced three rungs meant a small
+       * summary table near the top of an article beat the full progression
+       * further down — observed producing a three-rung ladder of only the
+       * highest realms on a page that lists dozens. A section match is worth
+       * something, so it wins ties and near-ties, but not by a wide margin.
+       */
+      const best = fromWhole.length > fromSection.length * 2 ? fromWhole : fromSection;
+      if (best.length >= 3) {
+        log('ladder: section gave', String(fromSection.length),
+          'rungs, whole page gave', String(fromWhole.length),
+          '- using', String(best.length));
+        return best;
+      }
+      if (fromWhole.length >= 3) return fromWhole;
 
       /* Only now are the section headings themselves worth treating as rungs —
        * on a page that lists each realm under its own heading, they are the
@@ -4842,6 +4958,15 @@
      * after the first chapter of a book.
      */
     resolveWiki() {
+      /* A line in the WIKIS block at the top of the file wins over everything,
+       * because it is the only setting here that survives closing the novel. */
+      const pinned = LoreLensApp.findPinnedWiki(this.context.novelTitle);
+      if (pinned) {
+        this.wiki.use(pinned);
+        log('wiki pinned in the WIKIS block:', pinned);
+        return Promise.resolve(pinned);
+      }
+
       const chosen = this.settings.get('wiki');
       if (chosen) {
         this.wiki.use(chosen);
@@ -4956,6 +5081,8 @@
       const root = this.context.root;
       const text = (root && (root.innerText || root.textContent)) || '';
 
+      this.seedIndexFromCache();
+
       const candidates = this.detector.detect(text);
       for (const candidate of candidates) {
         /* A name we have looked up before, in any chapter, is already known —
@@ -4990,6 +5117,78 @@
         }
         self.prefetch(candidates);
       });
+    }
+
+    /**
+     * Match the novel against the WIKIS block at the top of the file.
+     *
+     * Matching on a substring rather than the whole title on purpose: reader
+     * titles carry all sorts of extra — a fan work naming its premise, a
+     * translator's tag — and asking someone to reproduce that exactly would
+     * make the one durable setting the most fragile one.
+     */
+    static findPinnedWiki(novelTitle) {
+      const title = foldKey(novelTitle);
+      if (!title) return '';
+
+      let bestKey = '';
+      let best = '';
+      for (const pattern of Object.keys(WIKIS)) {
+        const needle = foldKey(pattern);
+        if (!needle || title.indexOf(needle) < 0) continue;
+        /* Longest match wins, so a specific entry beats a general one. */
+        if (needle.length > bestKey.length) {
+          bestKey = needle;
+          best = String(WIKIS[pattern] || '').trim();
+        }
+      }
+      return best;
+    }
+
+    /**
+     * Put every name we already know about this novel into the index, whether
+     * or not this chapter happens to mention it twice.
+     *
+     * This is the difference between marks that stay put and marks that flicker
+     * chapter to chapter. Detection needs a name to recur before it will call it
+     * a name — a reasonable rule for guessing, and completely wrong for a name
+     * we have already looked up and confirmed against the wiki. Without this,
+     * a character established fifty chapters ago goes unmarked in any chapter
+     * that mentions them only once, and the reader sees marks appear and vanish
+     * as they turn pages, which is exactly what was reported.
+     */
+    seedIndexFromCache() {
+      if (!this.wiki.subdomain) return;
+
+      const prefix = 'entry:' + this.wiki.subdomain + ':';
+      const keys = this.store.keysUnder(prefix);
+      let recalled = 0;
+
+      for (const key of keys) {
+        const entity = this.store.read(key);
+        if (!entity || !entity.name) continue;
+        this.index.add({
+          name: entity.name,
+          aliases: entity.aliases || [],
+          entity: entity,
+          confidence: CONFIDENCE.CONFIRMED,
+        });
+        /* The term the reader originally tapped may differ from the article
+         * title — "Young Master Gu" against "Gu Changge" — and both should
+         * light up. The cache key carries the original. */
+        const original = key.slice(prefix.length);
+        if (original && foldKey(original) !== foldKey(entity.name)) {
+          this.index.add({
+            name: original,
+            aliases: [],
+            entity: entity,
+            confidence: CONFIDENCE.CONFIRMED,
+          });
+        }
+        recalled += 1;
+      }
+
+      if (recalled > 0) log('recalled', String(recalled), 'known names from earlier chapters');
     }
 
     readCachedEntity(term) {
@@ -5637,6 +5836,8 @@
         Store: Store,
         Panel: Panel,
         RealmsGuide: RealmsGuide,
+        LoreLensApp: LoreLensApp,
+        WIKIS: WIKIS,
         buildEntity: buildEntity,
         buildSections: buildSections,
         cleanExtract: cleanExtract,

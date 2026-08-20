@@ -112,6 +112,28 @@
     findNovelTitle() {
       const candidates = [];
 
+      /*
+       * LNReader wraps the pasted script in a function that declares
+       * `novelName` and `chapterName` just above it:
+       *
+       *     async function fn(){
+       *       let novelName = "...";
+       *       let chapterName = "...";
+       *       ...
+       *       <your script here>
+       *     }
+       *
+       * So they are simply in scope, and they are the reader's own answer
+       * rather than anything we inferred. `document.title` is empty in that
+       * WebView, which is what made this worth finding. `typeof` keeps this
+       * safe anywhere the variables do not exist.
+       */
+      try {
+        if (typeof novelName === 'string' && novelName) candidates.push(novelName);
+      } catch (error) {
+        /* not running inside that wrapper */
+      }
+
       /* Some readers hand the page a data object. If one exists, believe it. */
       const bridge = window.reader || window.novel || null;
       if (bridge) {
@@ -172,6 +194,13 @@
     }
 
     findChapterTitle() {
+      /* Same wrapper as findNovelTitle: the reader declares this for us. */
+      try {
+        if (typeof chapterName === 'string' && chapterName) return chapterName.trim();
+      } catch (error) {
+        /* not running inside that wrapper */
+      }
+
       const bridge = window.reader || null;
       if (bridge && bridge.chapter && bridge.chapter.name) {
         return String(bridge.chapter.name).trim();

@@ -56,6 +56,8 @@
         Store: Store,
         Panel: Panel,
         RealmsGuide: RealmsGuide,
+        LoreLensApp: LoreLensApp,
+        WIKIS: WIKIS,
         buildEntity: buildEntity,
         buildSections: buildSections,
         cleanExtract: cleanExtract,

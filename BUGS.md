@@ -6,175 +6,171 @@ resumes from evidence rather than re-derivation.
 Status as of 2026-08-20, LoreLens 2.0.0.
 
 Device: OPPO CPH2447, Android 16, LNReader, light reader theme.
-Novel under test: a **fan work** whose title matches no wiki. The relevant wiki
-is the source work's, `battle-through-the-heavens.fandom.com`, which must be set
-by hand.
+Novel under test: a **fan work**, so no wiki matches its title. The relevant wiki
+is the source work's, `battle-through-the-heavens.fandom.com`, set by hand.
 
-Screenshots: `assets/bug-reports/` (gitignored — they are photographs of pages
-of a copyrighted novel, and this repo is public).
-
----
-
-## Confirmed environment facts
-
-**Measured on the device**, and corroborated by LNReader's source. Do not
-re-derive these.
-
-| Fact | Value | Consequence |
-| --- | --- | --- |
-| `origin` | `null` | No origin-scoped storage survives. |
-| `secure context` | `false` | No `navigator.clipboard`. Diagnostics must be on-screen. |
-| `storage` | `window.name` only | `localStorage` **and** `sessionStorage` both fail their probe. |
-| `boot count` | climbs 1 → 2 across a chapter | **`window.name` persists. In-page storage does work.** |
-| `document.title` | empty | Cannot identify the novel. |
-| chapter root | `DIV#LNReader-chapter` | Detection correct. |
-| novel key | stable across chapters | Per-novel settings key is not the problem. |
-| highlight mode | `highlight` | Custom Highlight API path active. |
-| Feature detection | all `true` | Every API the tool uses is present. |
-
-LNReader renders the chapter with `source={{ html }}` and **no `baseUrl`**
-(`src/screens/reader/components/WebViewReader.tsx`). Custom JS is interpolated
-into a final `<script>` in that HTML, so it runs once per document, after the
-built-in scripts. **Every chapter is a new document.**
-
-Also documented by LNReader: `#reader-ui`, `#reader-footer-wrapper`,
-`#ToolWrapper`, `#ScrollBar`, `#TTS-Controller`, `.next-button`,
-`body.page-reader`, `.highlight` (element TTS is currently reading).
+Screenshots: `assets/bug-reports/` (gitignored — photographs of pages of a
+copyrighted novel, and this repo is public).
 
 ---
 
-## Bug 1 — marks disappear and never come back
+## How LNReader runs this script
 
-**Root cause found and fixed. Needs confirmation on device.**
+Read from source, not inferred. `src/screens/reader/components/WebViewReader.tsx`.
 
-### What the log showed
+The pasted script is interpolated into a function in the page:
 
+```js
+async function fn(){
+  let novelName   = "...";
+  let chapterName = "...";
+  let sourceId    = ...;
+  let chapterId   = ...;
+  let novelId     = ...;
+  let html = document.querySelector("chapter").innerHTML;
+  <the pasted script goes here>
+}
+document.addEventListener("DOMContentLoaded", fn);
 ```
-   9ms  highlighted 51 mentions          <- correct
-   9ms  probing subdomains: fbsgaoylsmatb
-  67ms  wiki request failed (1): Failed to fetch
-6015ms  matcher built over 1 terms       <- index emptied out
-6026ms  highlighted 0 mentions
-```
 
-Marking worked at boot — 51 mentions — and was then destroyed by failing wiki
-lookups:
+Consequences, all load-bearing:
 
-1. `prefetch()` looked names up; every request failed, because discovery had
-   invented the subdomain `fbsgaoylsmatb` from the fan work's long title.
-2. Each failure called `index.reject(term)`.
-3. `buildMatcher()` **excluded rejected terms**, so the matcher shrank.
-4. Eventually nothing matched: `highlighted 0 mentions`.
-5. The watchdog saw no marks, re-ran, re-derived the same rejected terms, got 0
-   again — **every 3 seconds, forever**.
+- **`novelName` and `chapterName` are in scope.** They are the reader's own
+  values. `document.title` is empty, so these are strictly better than anything
+  we can infer. Now used.
+- The WebView is created with `source={{ html }}` and **no `baseUrl`**, so the
+  document has **no origin**.
+- The message bridge accepts only `hide`, `next`, `prev`, `imgfile`,
+  `scrollend`, `height`, `pages`. **There is no channel to persist anything.**
+- WebView props: `originWhitelist={['*']}`, `javaScriptEnabled`,
+  `allowFileAccess`. No `key` prop, so changing chapter replaces `source.html`
+  and reloads the document in the *same* WebView.
 
-**The defect: a failed network request could un-highlight a name.** Whether a
-wiki has an article is not what decides whether a name is a name.
+### Measured on the device
+
+| Fact | Value |
+| --- | --- |
+| `origin` | `null` |
+| `secure context` | `false` — hence no `navigator.clipboard` |
+| `storage` | `window.name` only; `localStorage` and `sessionStorage` both fail |
+| `boot count` | climbs 1 → 2 across a chapter change |
+| `document.title` | empty |
+| chapter root | `DIV#LNReader-chapter` |
+| highlight mode | `highlight` (Custom Highlight API) |
+
+---
+
+## Bug 1 — marks vanish between chapters
+
+**Cause identified. Fixed in code. NOT yet confirmed on device.**
+
+Reported precisely: *"entered a wiki in chapter 13, go to chapter 14, many names
+lose their highlight, going to chapter 15 brings some back."*
+
+That wording is the diagnosis. The index was built **only from names the current
+chapter mentions often enough for detection to call them names** — two
+occurrences at the default setting. A character already looked up and confirmed
+against the wiki was therefore *not* marked in a chapter that mentioned them
+once. Which names are marked then tracks which names happen to repeat in each
+chapter, so they appear and vanish as pages turn.
 
 ### Fixed by
-- `reject()` no longer removes a term from the matcher; it only demotes it to
-  `GUESSED` so it is drawn more quietly.
-- `prefetch()` distinguishes a failed request from a definitive "no such
-  article" (by watching the client's failure counter) and only rejects on the
-  latter; it also stops prefetching for the chapter once the wiki stops
-  answering.
-- The watchdog is capped at 3 consecutive attempts.
-- Discovery no longer generates initialisms for titles longer than 5 words, so
-  `fbsgaoylsmatb` is never produced.
+`seedIndexFromCache()` now loads every entity already cached for the novel into
+the index at `CONFIRMED` confidence before detection runs, so a known name is
+marked on its first occurrence. Aliases and the originally-tapped term are
+indexed too.
 
-### Previously tried, did not fix it
+### Earlier, separate cause — also fixed
+A failed lookup used to call `index.reject()`, and rejected terms were excluded
+from the matcher. With an unreachable wiki this emptied the matcher completely
+and every mark disappeared. `reject()` now only demotes a term to a guess.
+Confirmed from a device log showing `highlighted 51 mentions` at boot degrading
+to `highlighted 0 mentions` after `wiki request failed`.
+
+### Tried and did not fix it
 - Guaranteeing the scan-completion callback fires once.
 - Re-attaching tap handler and observer to `document`.
-- `isStillPainted()` + 3s watchdog — this **made it worse**, turning a one-off
-  failure into a permanent loop.
-- Ungating marking from the network — correct and kept; it is why marking works
-  at boot, but it did not stop the later destruction.
+- `isStillPainted()` + a 3s watchdog — **made it worse**, an unbounded loop.
+  Now capped at 3 attempts.
+- Ungating marking from the network — correct, kept, not sufficient.
 
 ---
 
-## Bug 2 — the chosen wiki is forgotten
+## Bug 2 — the wiki is forgotten
 
-**Mechanism now works. Needs an explicit end-to-end check.**
+**Root cause established. Not fixable in-page. Worked around.**
 
-`boot count` climbing 1 → 2 across a chapter change proves the `window.name`
-fallback persists. Storage is no longer the blocker it was.
+Reported precisely: *"asks for wiki again if I exit a chapter and enter the
+chapter again."* That distinction matters and is consistent with everything:
 
-Both captures show `wiki: (none)` — but the wiki was never set during that run,
-so this neither confirms nor refutes the remaining behaviour.
+- Chapter → next chapter: same WebView, new document. `window.name` survives,
+  which is why `boot count` climbs 1 → 2. Settings hold.
+- Leaving the reader: the WebView is unmounted. `window.name` goes with it.
 
-### Outstanding check
-Set the wiki to `battle-through-the-heavens`, move to the next chapter, and see
-whether it is still set. If it is not, the fault is in the load order
-(`Settings.load` → `useNovel`), not in storage.
+There is no alternative. The document has no origin, so the browser refuses
+`localStorage`, `sessionStorage`, cookies and IndexedDB alike, and LNReader's
+bridge exposes no message type to save into. **Nothing a page script can do will
+persist across closing the novel.**
+
+### Worked around by
+A `WIKIS` block at the top of `lorelens.js` mapping any distinctive part of a
+novel's title to a wiki subdomain. It is the only durable setting available, so
+matching is deliberately forgiving (case-insensitive, substring, longest match
+wins). The settings panel now states plainly that the in-app value will not
+survive, and prints the exact line to add.
 
 ### Ruled out
-- Novel identity: the key is stable and correct across chapters.
-- The settings write path: values reach the store and survive.
-
-### Previously tried
-- Stripping chapter numbers from the novel title for a stable key.
-- Committing text fields on `input`/`blur`/Enter, not just `change`.
-- `window.name` fallback and multi-store write/read — **this is the one that
-  worked.**
+- Novel identity — the key is stable and correct across chapters.
+- The settings write path — values reach the store and survive a chapter change.
 
 ---
 
 ## Bug 3 — the ladder shows too few, and wrong, levels
 
-**Root cause found and fixed. Needs confirmation on device.**
+**Partly fixed. Still wrong on the real page. Cause not fully established.**
 
-### What the screenshot showed
-The ladder rendered as:
+Session 3 showed a ladder reading `1 Rank / 2 Pinyin / 3 Peak Dou Zun`, headed by
+the wiki's editorial notice. Three defects, all fixed:
 
-```
-1  Rank            IN THIS CHAPTER
-2  Pinyin
-3  Peak Dou Zun(...)
-4  Ban Sheng(...)
-5  Half Step Dou Di(...)
-```
+- column headers read as rungs (header cells marked up as `<td>`, so skipping
+  all-`<th>` rows missed them — now there is a `COLUMN_LABELS` list);
+- the first table on the page won regardless of size;
+- `parseIntro` did not run the editorial-notice filter.
 
-introduced by the wiki's editorial notice. "Show all levels" produced the same
-five, so nothing was being folded — the parser genuinely found only these.
+Session 4 shows it improved but **still wrong**: three rungs, and they are the
+*top* realms only. So a small table is still winning over the real progression.
+`parseLadder` now takes the better of the section-scoped and whole-document
+results rather than the first to clear three rungs, which should help — but this
+is a guess at the page's shape, not a fix derived from it.
 
-Three separate defects:
-
-1. **Column headers read as rungs.** "Rank" and "Pinyin" name the columns. The
-   header row's cells were ordinary `<td>`, so a structural "skip all-`<th>`
-   rows" test did not catch them.
-2. **The first table won regardless of size.** The page opens with a small
-   summary table; the real ladder is further down.
-3. **`parseIntro` did not filter editorial notices**, though the entity
-   summaries already did.
-
-### Fixed by
-- Header rows skipped structurally (all-`<th>` rows), **plus** a `COLUMN_LABELS`
-  list so header cells marked up as `<td>` are dropped too.
-- Every table in the chosen section is considered; the one yielding the most
-  rungs wins.
-- `parseIntro` now runs the same editorial-notice filter as entity summaries.
+### What is actually needed
+The structure of `battle-through-the-heavens.fandom.com/wiki/Cultivation`:
+which element holds the full progression, and what the small three-row table
+near it is. Attempting to fetch it this session failed (HTTP 402, rate limited).
+Either fetch it next session, or read the parse decision out of the diagnostics
+log, which now records how many rungs each strategy produced.
 
 ---
 
 ## Secondary issues
 
-1. **`Failed to fetch` is still not distinguished from "no such article"** inside
-   `WikiClient` — both return `null`. Bug 1's fix works around this at the call
-   site by watching the failure counter. Worth fixing properly at the client.
-2. **Infobox tags include values that are not tags** — "Cai Lin", "Gu Xun Er"
-   appeared as capsules, presumably a relationships field classified as
-   affiliation.
-3. **Panel footer can sit under `#reader-footer-wrapper`.** Mitigated with 72px
-   bottom padding; verify it is enough.
-4. **Verify `SKIP_SELECTOR` does not over-match.** If `#LNReader-chapter` were
-   ever inside `#reader-ui`, `closest()` would reject every text node and
-   marking would silently yield zero. The device log exonerates it here, but it
-   is a sharp edge.
+1. `WikiClient` still returns `null` for both "no such article" and "the request
+   failed". Bug 1's fix works around this at the call site. Fix it at the client.
+2. Infobox tags include values that are not tags ("Cai Lin", "Gu Xun Er").
+3. Panel footer can sit under `#reader-footer-wrapper`; mitigated with 72px
+   padding, unverified.
+4. `SKIP_SELECTOR` includes `#reader-ui`. If the chapter were ever inside it,
+   `closest()` would reject every text node and marking would silently yield
+   zero. Not the case on this device, but a sharp edge.
 
 ---
 
 ## Next session
 
-1. Confirm bug 1 and bug 3 are actually gone on device.
-2. Run the bug 2 end-to-end check above.
-3. If all three are clear, publish.
+1. Confirm bug 1 on device — marks should now persist across chapters for any
+   name looked up before.
+2. Confirm the `WIKIS` block makes the wiki stick across closing the novel.
+3. Get the structure of that Cultivation page and finish bug 3 from evidence.
+
+Nothing has been confirmed fixed on device. Do not publish on the strength of
+the test suite alone — every one of these bugs passed a green suite.

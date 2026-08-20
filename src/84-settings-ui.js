@@ -44,7 +44,25 @@
         (this.wiki.subdomain
           ? 'Currently using <strong>' + escapeHtml(this.wiki.subdomain) + '.fandom.com</strong>.'
           : 'No wiki found yet.') +
-        '</p></div>' +
+        '</p>' +
+
+        /* Say plainly that this will not last, and give the line that does.
+         * The reader gives this page no origin, so the browser refuses every
+         * persistent store, and its own bridge has nothing to save into —
+         * setting this again on every visit is otherwise the experience. */
+        (this.wiki.subdomain
+          ? '<p class="lorelens-help">This is remembered while you stay in the novel, but ' +
+            '<strong>not</strong> after you close it — your reader gives this page no ' +
+            'storage. To make it permanent, add this line to the <code>WIKIS</code> block ' +
+            'at the top of lorelens.js:</p>' +
+            '<pre class="lorelens-diagnostics">' +
+            escapeHtml(
+              "  '" + SettingsView.pinKeyFor(this.context.novelTitle) + "': '" +
+              this.wiki.subdomain + "',",
+            ) +
+            '</pre>'
+          : '') +
+        '</div>' +
 
         /* Reading position, which drives the spoiler guard. */
         '<div class="lorelens-field">' +
@@ -142,6 +160,18 @@
       this.panel.setContent(html);
       this.bind();
       this.panel.open();
+    }
+
+    /**
+     * A short, distinctive phrase from the novel's title to use as the WIKIS
+     * key. The whole title would work but is unpleasant to retype off a phone
+     * screen, and matching is on substrings anyway, so a few words is enough.
+     */
+    static pinKeyFor(novelTitle) {
+      const words = foldKey(novelTitle).split(' ').filter(function (word) {
+        return word.length > 2 && !STOPWORDS.has(word);
+      });
+      return words.slice(0, 4).join(' ') || foldKey(novelTitle);
     }
 
     static option(value, label, current) {

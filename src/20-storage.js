@@ -271,6 +271,26 @@
       return removed;
     }
 
+    /**
+     * Every logical key we hold that starts with `prefix`, across all backends.
+     *
+     * Used to recall everything already known about a novel at the start of a
+     * chapter, rather than only what the current chapter happens to mention.
+     */
+    keysUnder(prefix) {
+      const full = STORAGE_PREFIX + prefix;
+      const seen = new Set();
+      for (const entry of this.backends) {
+        for (const fullKey of this.ownKeys(entry.store)) {
+          if (fullKey.indexOf(full) === 0) seen.add(fullKey.slice(STORAGE_PREFIX.length));
+        }
+      }
+      for (const key of this.memory.keys()) {
+        if (key.indexOf(prefix) === 0) seen.add(key);
+      }
+      return Array.from(seen);
+    }
+
     /** Rough size of what we are occupying, for the settings panel. */
     describeUsage() {
       let bytes = 0;

@@ -31,6 +31,31 @@
 (function lorelensMain() {
   'use strict';
 
+  /* ===========================================================================
+   *  THE ONLY THING IN THIS FILE WORTH EDITING
+   *
+   *  Which wiki belongs to which novel. Add a line and it sticks for good.
+   *
+   *      'novel name, or any distinctive part of it': 'wiki-subdomain'
+   *
+   *  The subdomain is the part before .fandom.com, so
+   *  https://shadowslave.fandom.com is 'shadowslave'. Matching ignores case
+   *  and matches on any part of the title, so a few words is plenty.
+   *
+   *  You can also set the wiki from the settings panel inside the reader, and
+   *  for a single sitting that works fine. It will not survive closing the
+   *  novel and opening it again, and that is not a bug we can fix: the reader
+   *  hands the page to the WebView with no origin, which leaves the browser
+   *  refusing every kind of persistent storage, and the reader's own bridge
+   *  offers nothing to save into. A line here is the durable version.
+   * ========================================================================= */
+
+  const WIKIS = {
+    // 'battle through the heavens': 'battle-through-the-heavens',
+    // 'shadow slave': 'shadowslave',
+    // 'reverend insanity': 'reverendinsanity',
+  };
+
   /* Readers re-inject custom scripts on every chapter, and some do it more than
    * once per chapter. A second run should pick up the new text, not build a
    * second copy of the whole UI on top of the first. */
