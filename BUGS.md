@@ -122,6 +122,41 @@ survive, and prints the exact line to add.
 ### Ruled out
 - Novel identity — the key is stable and correct across chapters.
 - The settings write path — values reach the store and survive a chapter change.
+- LNReader's file-access permission. That is a native Android permission held by
+  the app process, for writing downloaded chapters to disk. The WebView document
+  is sandboxed separately and inherits none of it.
+
+### The real fix is upstream, and it is one line
+
+DOM storage is **not** switched off: `domStorageEnabled` is Android-only and
+defaults to `true`, and LNReader does not override it. The sole reason
+`localStorage` throws is the missing origin, and react-native-webview documents
+`source.baseUrl` as supplying exactly that — it "is also used for the origin
+header with CORS requests made from the WebView".
+
+So in `src/screens/reader/components/WebViewReader.tsx`:
+
+```jsx
+source={{
+  html: `...`,
+  baseUrl: 'https://lnreader.local/',   // any stable value
+}}
+```
+
+would give the chapter document a real origin, and with it `localStorage`,
+`sessionStorage` and cookies — for **every** custom-JS user of LNReader, not
+just this project. It would also likely make cross-origin `fetch` to wiki APIs
+more reliable, since requests would carry a real `Origin` header instead of
+`null`; the `Failed to fetch` seen in the device log is consistent with that.
+
+**Unverified.** It is well-founded from the documentation but has not been built
+and run. Before proposing it upstream, check what a non-null baseUrl does to
+relative image URLs and to the `delayed-src` image loading path, since those are
+the things a base URL changes.
+
+LoreLens needs no change to benefit: `Store.probeBackends()` already tries
+`localStorage` first and only falls back to `window.name`, so the day a build
+with `baseUrl` ships, settings start persisting on their own.
 
 ---
 
