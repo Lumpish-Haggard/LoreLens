@@ -383,6 +383,13 @@ function run() {
   notOk(I.isEditorialNotice('Little Fairy Doctor is one of the main female deuteragonists.'),
     'an actual description is not mistaken for a notice');
 
+  /* A wiki opening the line with an emoji defeated the anchored test, and the
+     notice landed in the one line meant to say who a character is. */
+  ok(I.isEditorialNotice('\u{1F525}Read this Page while listening to the Song.'),
+    'a leading emoji does not smuggle a notice past the filter');
+  ok(I.isEditorialNotice('  "This article is a stub.'),
+    'nor does leading whitespace or punctuation');
+
   is(I.cleanExtract('See https://example.fandom.com/wiki/File:A_Song.mp3 for more.').indexOf('http'), -1,
     'a bare URL is removed rather than chopped into fragments');
   is(I.cleanExtract('Body text. ↑ Chapter 1070 ↑ Chapter 814').trim(), 'Body text.',

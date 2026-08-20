@@ -14,29 +14,32 @@ have not reached yet hidden behind a tap.
 It is one JavaScript file you paste into your reader. There is no account, no
 API key, no server, and nothing to set up.
 
-```
-┌─────────────────────────────────────────┐
-│  …the fog swirled around Gu Changge,    │   ← names are marked in the text
-│  and Yue Mingkong said nothing at all.  │
-│                                          │
-├─────────────────────────────────────────┤
-│  ▐▛▀▜▌  Gu Changge                      │
-│  ▐▙▄▟▌  顾长歌 · Gù Chánggē              │
-│         also Young Master Gu             │
-│                                          │
-│  ⟨status hidden⟩ ⟨Gu Family⟩ ⟨Sacred⟩   │   ← "Deceased" doesn't ambush you
-│                                          │
-│  WHO THIS IS                             │
-│  Heir to the Gu family and the           │
-│  antagonist the story follows.           │
-│                                          │
-│  MORE                                    │
-│  ┌───────────────────────────────────┐  │
-│  │ ▨ From beyond chapter 900         │  │   ← tap to reveal, never removed
-│  │   Tap to show                     │  │
-│  └───────────────────────────────────┘  │
-└─────────────────────────────────────────┘
-```
+<table>
+<tr>
+<td width="50%"><img src="docs/screenshots/01-chapter-highlights.jpg" alt="Names marked in the chapter text"></td>
+<td width="50%"><img src="docs/screenshots/02-spoiler-guard.jpg" alt="A character entry with content past the reader's chapter hidden"></td>
+</tr>
+<tr>
+<td><b>Names are marked as you read.</b> A solid wash means the name has been
+confirmed against the wiki; a dotted underline means it is still a guess, so an
+offer never looks like a promise.</td>
+<td><b>Anything past your chapter stays covered.</b> The wiki knows how the story
+ends. You tap if you want it, and not otherwise.</td>
+</tr>
+</table>
+
+<img src="docs/screenshots/03-character-panel.jpg" width="45%" align="right" alt="The character panel">
+
+Tap a name and you get the portrait, the native-script name, the aliases the
+translation actually uses, and the tags worth knowing — with the status capsule
+masked, because "Deceased" is a spoiler that fits in one word.
+
+Everything is read live from the novel's Fandom wiki and cached, so the second
+time you meet a character the panel opens instantly, and it keeps working with
+no connection at all.
+
+<br clear="right">
+
 
 ## Install
 
@@ -163,12 +166,35 @@ The file is unminified on purpose. You are being asked to paste a script into an
 app you read in — you should be able to read it first, and `tools/check.mjs`
 enforces the properties that make that audit meaningful.
 
-## Status
+## Status, and what is still broken
 
-**Not ready to install yet.** Three bugs found in real use are still open, two of
-them blockers. What is known about each — measured device facts, root causes
-where they are established, and what has already been tried and failed — is
-written down in **[BUGS.md](BUGS.md)**.
+**Not ready to install yet.** Bugs found in real use are still open, and
+**[BUGS.md](BUGS.md)** records each one properly — the measured device facts,
+the root cause where it is established, and what has already been tried and
+failed. Everything in it was found by reading on a phone, not by the test suite;
+every one of these bugs passed a green suite first.
+
+<img src="docs/screenshots/04-known-bug-ladder.jpg" width="40%" align="right" alt="The ladder showing only three levels, all from the top of the progression">
+
+The one with a picture is the ☰ **power-system ladder**. It is meant to list a
+world's cultivation levels in order. On the wiki shown here it finds three — and
+they are the *top* three, which is both wrong and a spoiler in its own right.
+
+Wikis disagree wildly about how to lay this out: a numbered list, a run of
+headings, a table with the real ranks interleaved among their sub-steps, or a
+small summary table sitting above the full one. The parser in
+[`src/88-realms.js`](src/88-realms.js) tries each shape and scores the section
+headings to pick the progression rather than the techniques list. It gets it
+right on some wikis and wrong on this one, and what it needs is someone who can
+look at a page it fails on and say what shape it actually is.
+
+**If that sounds like you, it is a good first contribution.** It is
+self-contained, it needs no device, and the tests in
+[`tests/harness.html`](tests/harness.html) already have several page shapes to
+add to. Open a [wiki compatibility issue](../../issues/new?template=wiki_compat.yml)
+with a page that comes out wrong, even if you do not want to write the fix.
+
+<br clear="right">
 
 ## Contributing
 

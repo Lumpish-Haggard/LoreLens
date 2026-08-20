@@ -2002,7 +2002,15 @@
    * down. Seen in the wild on a large, well-maintained wiki.
    */
   function isEditorialNotice(sentence) {
-    const key = foldKey(sentence);
+    /* Leading emoji and decoration defeat an anchored test. A wiki opening a
+     * page with a flame emoji before "Read this Page..." is enough to slip a
+     * notice past a /^read/ check and into the one line that is supposed to say
+     * who a character is — observed doing exactly that. */
+    /* Deliberately not a \p{...} class: this is a regex literal, so an engine
+     * without Unicode property escapes would fail to parse the whole file
+     * rather than just this line. Bounded to a few characters so a sentence in
+     * a non-Latin script is not swallowed whole. */
+    const key = foldKey(sentence).replace(/^[^A-Za-z0-9]{1,4}/, '');
     if (!key) return true;
 
     if (/^(this|the) (article|page|section)\b/.test(key)) return true;
