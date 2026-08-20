@@ -127,9 +127,17 @@
           { action: 'close', label: 'Done' },
         ]) +
 
-        '<p class="lorelens-meta">LoreLens ' + escapeHtml(VERSION) + ' &middot; ' +
-        escapeHtml(String(usage.count)) + ' cached entries, ' +
-        escapeHtml(String(usage.kilobytes)) + ' KB</p>';
+        /* "0 cached entries" reads the same whether nothing has been looked up
+         * yet or the reader is refusing to let us store anything at all — and
+         * those need very different responses from whoever is looking at it. */
+        (this.store.backend
+          ? '<p class="lorelens-meta">LoreLens ' + escapeHtml(VERSION) + ' &middot; ' +
+            escapeHtml(String(usage.count)) + ' cached entries, ' +
+            escapeHtml(String(usage.kilobytes)) + ' KB</p>'
+          : '<p class="lorelens-meta"><strong>Your reader is not letting LoreLens save ' +
+            'anything.</strong> Settings and looked-up entries will be forgotten when you ' +
+            'leave this chapter. Please report this with the diagnostics.<br>' +
+            'LoreLens ' + escapeHtml(VERSION) + '</p>');
 
       this.panel.setContent(html);
       this.bind();
@@ -160,8 +168,36 @@
     }
 
     /**
+     * Commit a text field's value on every plausible signal, not just `change`.
+     *
+     * `change` alone is not enough on a phone. It fires when the field loses
+     * focus, and a reader who types a wiki name and then dismisses the sheet by
+     * swiping it away — rather than tapping something else first — may never
+     * blur the field at all. The value they typed is sitting right there on
+     * screen, and it is silently thrown away. So: `input` as well, debounced so
+     * a half-typed name is not committed on every keystroke, plus `blur`, plus
+     * the Enter key.
+     */
+    static bindInput(element, commit) {
+      const push = function () {
+        commit(String(element.value || '').trim());
+      };
+      const pushSoon = debounce(push, 600);
+
+      element.addEventListener('input', guard('settings.input', pushSoon));
+      element.addEventListener('change', guard('settings.change', push));
+      element.addEventListener('blur', guard('settings.blur', push));
+      element.addEventListener('keydown', guard('settings.enter', function (event) {
+        if (event.key === 'Enter') {
+          push();
+          if (element.blur) element.blur();
+        }
+      }));
+    }
+
+    /**
      * Inputs need their own listeners rather than the panel's delegated click
-     * handler, since we care about change and blur rather than clicks.
+     * handler, since we care about typing and focus rather than clicks.
      */
     bind() {
       const self = this;
@@ -181,15 +217,15 @@
 
       const wikiInput = root.querySelector('#lorelens-wiki');
       if (wikiInput) {
-        wikiInput.addEventListener('change', guard('settings.wiki', function () {
+        SettingsView.bindInput(wikiInput, guard('settings.wiki', function (value) {
           /* Accept a full URL as well as a bare subdomain, because that is what
            * people have in their clipboard when they go looking for this. */
-          const raw = wikiInput.value.trim();
-          const parsed = raw
+          const parsed = value
             .replace(/^https?:\/\//i, '')
             .replace(/\.fandom\.com.*$/i, '')
             .replace(/\/.*$/, '')
             .trim();
+          if (parsed === self.settings.get('wiki')) return;
           self.settings.set('wiki', parsed);
           self.onApply('wiki');
         }));
@@ -197,9 +233,11 @@
 
       const progressInput = root.querySelector('#lorelens-progress');
       if (progressInput) {
-        progressInput.addEventListener('change', guard('settings.progress', function () {
-          const value = parseInt(progressInput.value, 10);
-          self.settings.set('chapterProgress', isNaN(value) ? 0 : Math.max(0, value));
+        SettingsView.bindInput(progressInput, guard('settings.progress', function (value) {
+          const parsed = parseInt(value, 10);
+          const next = isNaN(parsed) ? 0 : Math.max(0, parsed);
+          if (next === self.settings.get('chapterProgress')) return;
+          self.settings.set('chapterProgress', next);
           self.onApply('chapterProgress');
         }));
       }
@@ -214,8 +252,9 @@
 
       const lorepackInput = root.querySelector('#lorelens-lorepack');
       if (lorepackInput) {
-        lorepackInput.addEventListener('change', guard('settings.lorepack', function () {
-          self.settings.set('lorepackUrl', lorepackInput.value.trim());
+        SettingsView.bindInput(lorepackInput, guard('settings.lorepack', function (value) {
+          if (value === self.settings.get('lorepackUrl')) return;
+          self.settings.set('lorepackUrl', value);
           self.onApply('lorepackUrl');
         }));
       }
@@ -264,7 +303,7 @@
         'root: ' + (this.context.root ? this.context.root.tagName + '#' + (this.context.root.id || '') : 'NONE'),
         'wiki: ' + (this.wiki.subdomain || '(none)') + (this.wiki.disabled ? ' [disabled]' : ''),
         'highlight mode: ' + (highlighter ? highlighter.mode : '?'),
-        'storage: ' + (this.store.backend ? 'localStorage' : 'memory only'),
+        'storage: ' + this.store.backendName,
         '',
         'features:',
         '  CSS.highlights: ' + (typeof window.CSS !== 'undefined' && !!window.CSS.highlights),

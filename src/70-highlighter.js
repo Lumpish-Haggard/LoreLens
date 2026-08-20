@@ -76,7 +76,13 @@
      * whenever we might have been disturbed.
      */
     isStillPainted(root) {
-      if (this.ranges.length === 0) return true; // nothing was drawn; nothing lost
+      if (this.ranges.length === 0) {
+        /* Nothing is drawn. That is only healthy if there was nothing to draw —
+         * otherwise it means a run cleared the marks and then failed to put any
+         * back, which is precisely the state that used to persist until the
+         * reader closed the novel. */
+        return this.index.isEmpty;
+      }
 
       if (this.mode === 'highlight') {
         try {

@@ -182,8 +182,15 @@
 
       /* ---- footer ---- */
 
+      /* The trailing space is not decoration. Readers draw their own toolbar
+       * along the bottom of the screen, over the top of whatever is beneath it,
+       * and it appears and disappears on a tap — so a footer flush with the
+       * bottom of the sheet is sometimes reachable and sometimes buried under
+       * the reader's own buttons. There is no way to measure that bar from in
+       * here, so the footer keeps clear of it. */
       '.lorelens-foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;',
-      'margin:18px 0 0;padding-top:13px;border-top:1px solid ' + outline + ';}',
+      'margin:18px 0 0;padding-top:13px;padding-bottom:72px;',
+      'border-top:1px solid ' + outline + ';}',
       '.lorelens-btn{font:inherit;font-size:13px;font-weight:600;cursor:pointer;',
       'padding:8px 13px;border-radius:9px;border:1px solid ' + outline + ';',
       'background:transparent;color:' + text + ';text-decoration:none;',

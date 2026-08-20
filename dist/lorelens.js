@@ -493,6 +493,78 @@
   /* --------------------------------------------------------------- storage */
 
   /**
+   * A last-resort store built on `window.name`.
+   *
+   * Some reader WebViews load the chapter with no real origin — a `data:` or
+   * `about:blank` document — and every origin-scoped API, localStorage
+   * included, either throws or silently forgets everything between chapters.
+   * When that happens the tool asks which wiki to use on every single chapter,
+   * which is unusable.
+   *
+   * `window.name` is the one string that survives a navigation in the same
+   * window without belonging to an origin. It is a blunt instrument: it is
+   * shared with whatever else is on the page, and it does not survive the
+   * window being destroyed. So it is only ever reached for when the real
+   * options have failed, and it refuses to touch a value that is not ours.
+   *
+   * Declared before Store because a class declaration is not hoisted.
+   */
+  const WINDOW_NAME_MARKER = 'lorelens1:';
+
+  class WindowNameBackend {
+    read() {
+      const raw = String(window.name || '');
+      if (raw.indexOf(WINDOW_NAME_MARKER) !== 0) return {};
+      try {
+        return JSON.parse(raw.slice(WINDOW_NAME_MARKER.length)) || {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    save(map) {
+      const encoded = WINDOW_NAME_MARKER + JSON.stringify(map);
+      /* Very large values here would be carried into every navigation, so this
+       * backend holds settings and little else. */
+      if (encoded.length > 96 * 1024) throw new Error('window.name budget exhausted');
+      window.name = encoded;
+    }
+
+    /** Refuse to clobber a value some other script is relying on. */
+    static isSafeToUse() {
+      const raw = String(window.name || '');
+      return raw === '' || raw.indexOf(WINDOW_NAME_MARKER) === 0;
+    }
+
+    getItem(key) {
+      const map = this.read();
+      return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : null;
+    }
+
+    setItem(key, value) {
+      if (!WindowNameBackend.isSafeToUse()) throw new Error('window.name is in use');
+      const map = this.read();
+      map[key] = String(value);
+      this.save(map);
+    }
+
+    removeItem(key) {
+      if (!WindowNameBackend.isSafeToUse()) return;
+      const map = this.read();
+      delete map[key];
+      this.save(map);
+    }
+
+    key(index) {
+      return Object.keys(this.read())[index] || null;
+    }
+
+    get length() {
+      return Object.keys(this.read()).length;
+    }
+  }
+
+  /**
    * localStorage, but it never throws and it never grows without bound.
    *
    * A reader WebView may have storage disabled, may be in a private context, or
@@ -504,18 +576,43 @@
     constructor() {
       this.memory = new Map();
       this.backend = Store.probeBackend();
-      log('storage backend:', this.backend ? 'localStorage' : 'memory only');
+      this.backendName = Store.nameOf(this.backend);
+      log('storage backend:', this.backendName);
+    }
+
+    /** Which store we ended up on, for the diagnostics. */
+    static nameOf(backend) {
+      if (!backend) return 'memory only (nothing will be remembered)';
+      try {
+        if (backend === window.localStorage) return 'localStorage';
+        if (backend === window.sessionStorage) return 'sessionStorage (lost when the app closes)';
+      } catch (error) {
+        /* touching them can throw; fall through */
+      }
+      return 'window.name (fallback — the reader blocks normal storage)';
     }
 
     static probeBackend() {
-      try {
-        const key = STORAGE_PREFIX + 'probe';
-        window.localStorage.setItem(key, '1');
-        window.localStorage.removeItem(key);
-        return window.localStorage;
-      } catch (error) {
-        return null;
+      const candidates = [
+        function () { return window.localStorage; },
+        function () { return window.sessionStorage; },
+        function () { return new WindowNameBackend(); },
+      ];
+
+      for (const make of candidates) {
+        try {
+          const store = make();
+          if (!store) continue;
+          const key = STORAGE_PREFIX + 'probe';
+          store.setItem(key, '1');
+          const readBack = store.getItem(key);
+          store.removeItem(key);
+          if (readBack === '1') return store;
+        } catch (error) {
+          /* Blocked, absent, or full. Try the next one. */
+        }
       }
+      return null;
     }
 
     /**
@@ -1777,27 +1874,80 @@
   }
 
   /**
+   * Sentences that are the wiki talking to its own editors and readers rather
+   * than telling you who somebody is.
+   *
+   * These sit at the very top of an article, which is exactly where we look for
+   * the one-line "who is this" — so without this the panel opens on a notice
+   * about translation policy, and the actual description is buried further
+   * down. Seen in the wild on a large, well-maintained wiki.
+   */
+  function isEditorialNotice(sentence) {
+    const key = foldKey(sentence);
+    if (!key) return true;
+
+    if (/^(this|the) (article|page|section)\b/.test(key)) return true;
+    if (/^(read|listen to|click|see|for) (this|the|more)\b/.test(key)) return true;
+    if (/\b(is based on the official|information and terminology|source material rather than)\b/.test(key)) return true;
+    if (/^(spoiler|warning|note|disclaimer|citation needed)\b/.test(key)) return true;
+    if (/^(not to be confused|for other uses|redirects here)\b/.test(key)) return true;
+
+    /* A "sentence" that is mostly a link, or has almost no words in it. */
+    if (/^https?:\/\//.test(key)) return true;
+    const words = key.replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+    return words.length < 3;
+  }
+
+  /**
+   * Tidy a wiki extract before anything reads it.
+   *
+   * Strips bare URLs, which sentence-splitting otherwise chops at every dot and
+   * renders as "https://example. fandom. com/...", and strips the run of
+   * citation backlinks a wiki appends to its own text.
+   */
+  function cleanExtract(text) {
+    return String(text || '')
+      /* Reference backlinks: an upward arrow followed by its target. */
+      .replace(/[↑↰]\s*[^↑↰]{0,40}(?=[↑↰]|$)/g, ' ')
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
    * Split the summary into sections the spoiler guard can reason about, rather
-   * than one opaque blob. The first couple of sentences of a wiki lead are
-   * nearly always a safe "who is this", and the rest is where the trouble is.
+   * than one opaque blob. The opening lines of a wiki lead are nearly always a
+   * safe "who is this" — once the editorial furniture is out of the way — and
+   * the rest is where the trouble is.
    */
   function buildSections(extract) {
-    const sentences = splitSentences(extract);
+    const sentences = splitSentences(cleanExtract(extract));
     if (sentences.length === 0) return [];
 
-    const introCount = Math.min(2, sentences.length);
+    /* Find where the article stops introducing itself and starts describing
+     * the subject. Bounded, so an article that is nothing but notices still
+     * shows something rather than nothing. */
+    let start = 0;
+    while (start < sentences.length && start < 6 && isEditorialNotice(sentences[start])) {
+      start += 1;
+    }
+    if (start >= sentences.length) start = 0;
+
+    const useful = sentences.slice(start);
+    const introCount = Math.min(2, useful.length);
+
     const sections = [
       {
         title: 'Who this is',
-        body: sentences.slice(0, introCount).join(' '),
+        body: useful.slice(0, introCount).join(' '),
         alwaysSafe: true,
       },
     ];
 
-    if (sentences.length > introCount) {
+    if (useful.length > introCount) {
       sections.push({
         title: 'More',
-        body: sentences.slice(introCount).join(' '),
+        body: useful.slice(introCount).join(' '),
         alwaysSafe: false,
       });
     }
@@ -2398,7 +2548,13 @@
      * whenever we might have been disturbed.
      */
     isStillPainted(root) {
-      if (this.ranges.length === 0) return true; // nothing was drawn; nothing lost
+      if (this.ranges.length === 0) {
+        /* Nothing is drawn. That is only healthy if there was nothing to draw —
+         * otherwise it means a run cleared the marks and then failed to put any
+         * back, which is precisely the state that used to persist until the
+         * reader closed the novel. */
+        return this.index.isEmpty;
+      }
 
       if (this.mode === 'highlight') {
         try {
@@ -2884,8 +3040,15 @@
 
       /* ---- footer ---- */
 
+      /* The trailing space is not decoration. Readers draw their own toolbar
+       * along the bottom of the screen, over the top of whatever is beneath it,
+       * and it appears and disappears on a tap — so a footer flush with the
+       * bottom of the sheet is sometimes reachable and sometimes buried under
+       * the reader's own buttons. There is no way to measure that bar from in
+       * here, so the footer keeps clear of it. */
       '.lorelens-foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;',
-      'margin:18px 0 0;padding-top:13px;border-top:1px solid ' + outline + ';}',
+      'margin:18px 0 0;padding-top:13px;padding-bottom:72px;',
+      'border-top:1px solid ' + outline + ';}',
       '.lorelens-btn{font:inherit;font-size:13px;font-weight:600;cursor:pointer;',
       'padding:8px 13px;border-radius:9px;border:1px solid ' + outline + ';',
       'background:transparent;color:' + text + ';text-decoration:none;',
@@ -3478,9 +3641,17 @@
           { action: 'close', label: 'Done' },
         ]) +
 
-        '<p class="lorelens-meta">LoreLens ' + escapeHtml(VERSION) + ' &middot; ' +
-        escapeHtml(String(usage.count)) + ' cached entries, ' +
-        escapeHtml(String(usage.kilobytes)) + ' KB</p>';
+        /* "0 cached entries" reads the same whether nothing has been looked up
+         * yet or the reader is refusing to let us store anything at all — and
+         * those need very different responses from whoever is looking at it. */
+        (this.store.backend
+          ? '<p class="lorelens-meta">LoreLens ' + escapeHtml(VERSION) + ' &middot; ' +
+            escapeHtml(String(usage.count)) + ' cached entries, ' +
+            escapeHtml(String(usage.kilobytes)) + ' KB</p>'
+          : '<p class="lorelens-meta"><strong>Your reader is not letting LoreLens save ' +
+            'anything.</strong> Settings and looked-up entries will be forgotten when you ' +
+            'leave this chapter. Please report this with the diagnostics.<br>' +
+            'LoreLens ' + escapeHtml(VERSION) + '</p>');
 
       this.panel.setContent(html);
       this.bind();
@@ -3511,8 +3682,36 @@
     }
 
     /**
+     * Commit a text field's value on every plausible signal, not just `change`.
+     *
+     * `change` alone is not enough on a phone. It fires when the field loses
+     * focus, and a reader who types a wiki name and then dismisses the sheet by
+     * swiping it away — rather than tapping something else first — may never
+     * blur the field at all. The value they typed is sitting right there on
+     * screen, and it is silently thrown away. So: `input` as well, debounced so
+     * a half-typed name is not committed on every keystroke, plus `blur`, plus
+     * the Enter key.
+     */
+    static bindInput(element, commit) {
+      const push = function () {
+        commit(String(element.value || '').trim());
+      };
+      const pushSoon = debounce(push, 600);
+
+      element.addEventListener('input', guard('settings.input', pushSoon));
+      element.addEventListener('change', guard('settings.change', push));
+      element.addEventListener('blur', guard('settings.blur', push));
+      element.addEventListener('keydown', guard('settings.enter', function (event) {
+        if (event.key === 'Enter') {
+          push();
+          if (element.blur) element.blur();
+        }
+      }));
+    }
+
+    /**
      * Inputs need their own listeners rather than the panel's delegated click
-     * handler, since we care about change and blur rather than clicks.
+     * handler, since we care about typing and focus rather than clicks.
      */
     bind() {
       const self = this;
@@ -3532,15 +3731,15 @@
 
       const wikiInput = root.querySelector('#lorelens-wiki');
       if (wikiInput) {
-        wikiInput.addEventListener('change', guard('settings.wiki', function () {
+        SettingsView.bindInput(wikiInput, guard('settings.wiki', function (value) {
           /* Accept a full URL as well as a bare subdomain, because that is what
            * people have in their clipboard when they go looking for this. */
-          const raw = wikiInput.value.trim();
-          const parsed = raw
+          const parsed = value
             .replace(/^https?:\/\//i, '')
             .replace(/\.fandom\.com.*$/i, '')
             .replace(/\/.*$/, '')
             .trim();
+          if (parsed === self.settings.get('wiki')) return;
           self.settings.set('wiki', parsed);
           self.onApply('wiki');
         }));
@@ -3548,9 +3747,11 @@
 
       const progressInput = root.querySelector('#lorelens-progress');
       if (progressInput) {
-        progressInput.addEventListener('change', guard('settings.progress', function () {
-          const value = parseInt(progressInput.value, 10);
-          self.settings.set('chapterProgress', isNaN(value) ? 0 : Math.max(0, value));
+        SettingsView.bindInput(progressInput, guard('settings.progress', function (value) {
+          const parsed = parseInt(value, 10);
+          const next = isNaN(parsed) ? 0 : Math.max(0, parsed);
+          if (next === self.settings.get('chapterProgress')) return;
+          self.settings.set('chapterProgress', next);
           self.onApply('chapterProgress');
         }));
       }
@@ -3565,8 +3766,9 @@
 
       const lorepackInput = root.querySelector('#lorelens-lorepack');
       if (lorepackInput) {
-        lorepackInput.addEventListener('change', guard('settings.lorepack', function () {
-          self.settings.set('lorepackUrl', lorepackInput.value.trim());
+        SettingsView.bindInput(lorepackInput, guard('settings.lorepack', function (value) {
+          if (value === self.settings.get('lorepackUrl')) return;
+          self.settings.set('lorepackUrl', value);
           self.onApply('lorepackUrl');
         }));
       }
@@ -3615,7 +3817,7 @@
         'root: ' + (this.context.root ? this.context.root.tagName + '#' + (this.context.root.id || '') : 'NONE'),
         'wiki: ' + (this.wiki.subdomain || '(none)') + (this.wiki.disabled ? ' [disabled]' : ''),
         'highlight mode: ' + (highlighter ? highlighter.mode : '?'),
-        'storage: ' + (this.store.backend ? 'localStorage' : 'memory only'),
+        'storage: ' + this.store.backendName,
         '',
         'features:',
         '  CSS.highlights: ' + (typeof window.CSS !== 'undefined' && !!window.CSS.highlights),
@@ -3825,6 +4027,7 @@
       this.getChapterText = options.getChapterText;
       this.ladder = null;
       this.isLoading = false;
+      this.showAll = false;
     }
 
     get cacheKey() {
@@ -4193,7 +4396,7 @@
      */
     render(ladder) {
       const chapterText = foldKey(this.getChapterText ? this.getChapterText() : '');
-      const isStrict = this.settings.get('spoilerGuard') === 'strong';
+      const isStrict = this.settings.get('spoilerGuard') === 'strong' && !this.showAll;
       const foldFrom = isStrict ? Math.ceil(ladder.steps.length * 0.6) : ladder.steps.length;
 
       const rows = ladder.steps
@@ -4215,7 +4418,11 @@
       this.panel.setContent(
         '<div class="lorelens-head"><div class="lorelens-titles">' +
           '<h2 class="lorelens-name">' + escapeHtml(ladder.title) + '</h2>' +
-          '<p class="lorelens-native">' + escapeHtml(String(ladder.steps.length)) + ' levels</p>' +
+          '<p class="lorelens-native">' +
+          (foldFrom < ladder.steps.length
+            ? escapeHtml(String(foldFrom)) + ' of ' + escapeHtml(String(ladder.steps.length)) + ' levels'
+            : escapeHtml(String(ladder.steps.length)) + ' levels') +
+          '</p>' +
           '</div></div>' +
           (ladder.intro
             ? '<div class="lorelens-section"><p class="lorelens-text">' +
@@ -4230,6 +4437,12 @@
               '<span class="lorelens-hidden-hint">Tap to show</span></div>'
             : '') +
           Panel.footer([
+            /* An explicit way to see the whole ladder, always present. Whether
+             * anything is being held back is otherwise invisible — you cannot
+             * tell a short power system from a truncated one by looking. */
+            foldedCount > 0 || !this.showAll
+              ? { action: 'show-all-realms', label: 'Show all levels' }
+              : null,
             ladder.url ? { action: 'open-wiki', label: 'Full page', href: ladder.url } : null,
             { action: 'spacer' },
             { action: 'refresh-realms', label: 'Refresh' },
@@ -4242,10 +4455,8 @@
     /** Re-render with nothing folded away. */
     revealAll() {
       if (!this.ladder) return;
-      const previous = this.settings.values.spoilerGuard;
-      this.settings.values.spoilerGuard = 'off';
+      this.showAll = true;
       this.render(this.ladder);
-      this.settings.values.spoilerGuard = previous;
     }
 
     /** Drop the cached ladder and fetch it again — for when a wiki updates. */
@@ -4338,6 +4549,7 @@
       this.buildFab();
       this.watchForChapterChanges();
       this.watchForThemeChanges();
+      this.startWatchdog();
 
       if (!this.settings.get('enabled')) {
         log('LoreLens is switched off in settings');
@@ -4505,6 +4717,30 @@
       if (this.highlighter.isStillPainted(this.context.root)) return;
       log('marks went missing; re-running');
       this.scan();
+    }
+
+    /**
+     * Check periodically that the marks are still there, and redraw if not.
+     *
+     * A belt-and-braces measure, and worth the cost. The ways a reader can
+     * quietly detach our ranges — re-rendering a chapter, restoring scroll
+     * position, a font-size change, its own scripts touching the DOM — are not
+     * enumerable from in here, and none of them announce themselves. The
+     * failure they produce is total: no marks, no way to get them back short of
+     * leaving the novel. The check is a handful of property reads, so it can
+     * afford to run on a timer.
+     */
+    startWatchdog() {
+      const self = this;
+      window.setInterval(guard('app.watchdog', function () {
+        if (document.hidden) return;
+        self.revalidateHighlights();
+      }), 3000);
+
+      /* Coming back to the reader is a likely moment to have been disturbed. */
+      document.addEventListener('visibilitychange', guard('app.visible', function () {
+        if (!document.hidden) self.revalidateHighlights();
+      }));
     }
 
     scan() {
@@ -4825,7 +5061,7 @@
         this.realms.show();
         return;
       }
-      if (action === 'reveal-ladder') {
+      if (action === 'reveal-ladder' || action === 'show-all-realms') {
         this.realms.revealAll();
         return;
       }
@@ -5137,6 +5373,10 @@
         Panel: Panel,
         RealmsGuide: RealmsGuide,
         buildEntity: buildEntity,
+        buildSections: buildSections,
+        cleanExtract: cleanExtract,
+        isEditorialNotice: isEditorialNotice,
+        WindowNameBackend: WindowNameBackend,
         parseInfobox: parseInfobox,
         stripWikiHtml: stripWikiHtml,
         classifyFieldLabel: classifyFieldLabel,

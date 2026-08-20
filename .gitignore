@@ -24,3 +24,9 @@ desktop.ini
 
 # Throwaway preview pages used while eyeballing a visual change
 tests/.*.html
+
+# Bug-report screenshots. Kept locally so they can be looked at, never
+# committed: they are photographs of a page of a copyrighted novel, and this
+# repository is public. Attach them to an issue instead, cropped to the part
+# that shows the problem.
+assets/bug-reports/

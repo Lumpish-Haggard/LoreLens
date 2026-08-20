@@ -311,6 +311,42 @@ function run() {
   );
   is(I.scaleWikiImage('https://example.com/a.png', 480), 'https://example.com/a.png', 'non-wiki images are left alone');
 
+  /* ------------------------------------------------- extract tidying ---- */
+
+  /*
+    Seen on a real wiki: the article opens with a notice to readers, then a bare
+    URL, and ends with its own citation backlinks. All three landed in the panel,
+    with the notice occupying the "who is this" line where the description
+    belongs, and the URL chopped at every dot by sentence splitting.
+  */
+  section('extract tidying');
+
+  ok(I.isEditorialNotice('This article is based on the Official Translations of the Web Novel series!'),
+    'an editorial notice is recognised');
+  ok(I.isEditorialNotice('Read this Page which is full of Content while listening to the Song.'),
+    'a note addressed to the reader is recognised');
+  notOk(I.isEditorialNotice('Little Fairy Doctor is one of the main female deuteragonists.'),
+    'an actual description is not mistaken for a notice');
+
+  is(I.cleanExtract('See https://example.fandom.com/wiki/File:A_Song.mp3 for more.').indexOf('http'), -1,
+    'a bare URL is removed rather than chopped into fragments');
+  is(I.cleanExtract('Body text. ↑ Chapter 1070 ↑ Chapter 814').trim(), 'Body text.',
+    'citation backlinks are stripped');
+
+  const noisySections = I.buildSections(
+    'This article is based on the Official Translations of the Web Novel series! ' +
+    'Read this Page while listening to the Song. ' +
+    'She is one of the main deuteragonists. She was cursed with a poisonous body. ' +
+    'Later she is cured in Chapter 800.',
+  );
+  ok(noisySections[0].body.indexOf('main deuteragonists') >= 0,
+    '"Who this is" starts at the real description, not the notice');
+  is(noisySections[0].body.indexOf('Official Translations'), -1,
+    'the notice does not appear in the summary at all');
+
+  is(I.buildSections('This article is a stub.')[0].body.length > 0, true,
+    'an article that is nothing but notices still shows something');
+
   /* ------------------------------------------------------ spoiler guard -- */
 
   section('spoiler guard');
@@ -355,6 +391,34 @@ function run() {
   is(store.read('unit-test-expiring'), null, 'an expired value reads as absent');
   store.remove('unit-test-key');
   is(store.read('unit-test-key'), null, 'a removed value reads as absent');
+
+  ok(store.backendName && store.backendName.length > 0, 'the backend names itself for diagnostics');
+
+  /*
+    The fallback for readers whose WebView has no usable origin, where every
+    origin-scoped store either throws or forgets between chapters — which shows
+    up as being asked which wiki to use on every single chapter.
+  */
+  const savedWindowName = window.name;
+  window.name = '';
+  const fallback = new I.WindowNameBackend();
+  fallback.setItem('lorelens:v2:probe', 'kept');
+  is(fallback.getItem('lorelens:v2:probe'), 'kept', 'window.name storage round-trips');
+  is(fallback.length, 1, 'it reports how much it holds');
+  fallback.removeItem('lorelens:v2:probe');
+  is(fallback.getItem('lorelens:v2:probe'), null, 'and can forget again');
+
+  /* It must never clobber a window.name that belongs to somebody else. */
+  window.name = 'something-another-script-relies-on';
+  let refused = false;
+  try {
+    new I.WindowNameBackend().setItem('lorelens:v2:probe', 'x');
+  } catch (error) {
+    refused = true;
+  }
+  ok(refused, 'it refuses to overwrite a window.name it does not own');
+  is(window.name, 'something-another-script-relies-on', 'and leaves that value alone');
+  window.name = savedWindowName;
 
   /* ------------------------------------------------------- wiki plumbing */
 
@@ -421,6 +485,20 @@ function run() {
     'a range pointing outside the chapter is reported as lost');
   app.highlighter.ranges = survivor;
   is(app.highlighter.ranges.length, paintedBefore, 'the real ranges are untouched by the check');
+
+  /*
+    The hole in the first attempt at this fix: "no ranges at all" was reported
+    as healthy, so the one state that actually needed recovering — a run that
+    cleared the marks and then drew none — was the one state never recovered.
+  */
+  app.highlighter.ranges = [];
+  notOk(app.highlighter.isStillPainted(chapterRoot),
+    'drawing nothing when there are terms to draw is reported as broken');
+
+  const emptyIndexHighlighter = new I.Highlighter(new I.EntityIndex(), app.settings);
+  ok(emptyIndexHighlighter.isStillPainted(chapterRoot),
+    'drawing nothing when there is nothing to draw is fine');
+  app.highlighter.ranges = survivor;
 
   /* And the wrapping path has to work too, since old WebViews will take it. */
   const wrapIndex = new I.EntityIndex();

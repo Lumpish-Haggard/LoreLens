@@ -2,6 +2,78 @@
   /* --------------------------------------------------------------- storage */
 
   /**
+   * A last-resort store built on `window.name`.
+   *
+   * Some reader WebViews load the chapter with no real origin — a `data:` or
+   * `about:blank` document — and every origin-scoped API, localStorage
+   * included, either throws or silently forgets everything between chapters.
+   * When that happens the tool asks which wiki to use on every single chapter,
+   * which is unusable.
+   *
+   * `window.name` is the one string that survives a navigation in the same
+   * window without belonging to an origin. It is a blunt instrument: it is
+   * shared with whatever else is on the page, and it does not survive the
+   * window being destroyed. So it is only ever reached for when the real
+   * options have failed, and it refuses to touch a value that is not ours.
+   *
+   * Declared before Store because a class declaration is not hoisted.
+   */
+  const WINDOW_NAME_MARKER = 'lorelens1:';
+
+  class WindowNameBackend {
+    read() {
+      const raw = String(window.name || '');
+      if (raw.indexOf(WINDOW_NAME_MARKER) !== 0) return {};
+      try {
+        return JSON.parse(raw.slice(WINDOW_NAME_MARKER.length)) || {};
+      } catch (error) {
+        return {};
+      }
+    }
+
+    save(map) {
+      const encoded = WINDOW_NAME_MARKER + JSON.stringify(map);
+      /* Very large values here would be carried into every navigation, so this
+       * backend holds settings and little else. */
+      if (encoded.length > 96 * 1024) throw new Error('window.name budget exhausted');
+      window.name = encoded;
+    }
+
+    /** Refuse to clobber a value some other script is relying on. */
+    static isSafeToUse() {
+      const raw = String(window.name || '');
+      return raw === '' || raw.indexOf(WINDOW_NAME_MARKER) === 0;
+    }
+
+    getItem(key) {
+      const map = this.read();
+      return Object.prototype.hasOwnProperty.call(map, key) ? map[key] : null;
+    }
+
+    setItem(key, value) {
+      if (!WindowNameBackend.isSafeToUse()) throw new Error('window.name is in use');
+      const map = this.read();
+      map[key] = String(value);
+      this.save(map);
+    }
+
+    removeItem(key) {
+      if (!WindowNameBackend.isSafeToUse()) return;
+      const map = this.read();
+      delete map[key];
+      this.save(map);
+    }
+
+    key(index) {
+      return Object.keys(this.read())[index] || null;
+    }
+
+    get length() {
+      return Object.keys(this.read()).length;
+    }
+  }
+
+  /**
    * localStorage, but it never throws and it never grows without bound.
    *
    * A reader WebView may have storage disabled, may be in a private context, or
@@ -13,18 +85,43 @@
     constructor() {
       this.memory = new Map();
       this.backend = Store.probeBackend();
-      log('storage backend:', this.backend ? 'localStorage' : 'memory only');
+      this.backendName = Store.nameOf(this.backend);
+      log('storage backend:', this.backendName);
+    }
+
+    /** Which store we ended up on, for the diagnostics. */
+    static nameOf(backend) {
+      if (!backend) return 'memory only (nothing will be remembered)';
+      try {
+        if (backend === window.localStorage) return 'localStorage';
+        if (backend === window.sessionStorage) return 'sessionStorage (lost when the app closes)';
+      } catch (error) {
+        /* touching them can throw; fall through */
+      }
+      return 'window.name (fallback — the reader blocks normal storage)';
     }
 
     static probeBackend() {
-      try {
-        const key = STORAGE_PREFIX + 'probe';
-        window.localStorage.setItem(key, '1');
-        window.localStorage.removeItem(key);
-        return window.localStorage;
-      } catch (error) {
-        return null;
+      const candidates = [
+        function () { return window.localStorage; },
+        function () { return window.sessionStorage; },
+        function () { return new WindowNameBackend(); },
+      ];
+
+      for (const make of candidates) {
+        try {
+          const store = make();
+          if (!store) continue;
+          const key = STORAGE_PREFIX + 'probe';
+          store.setItem(key, '1');
+          const readBack = store.getItem(key);
+          store.removeItem(key);
+          if (readBack === '1') return store;
+        } catch (error) {
+          /* Blocked, absent, or full. Try the next one. */
+        }
       }
+      return null;
     }
 
     /**

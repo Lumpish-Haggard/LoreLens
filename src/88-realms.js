@@ -46,6 +46,7 @@
       this.getChapterText = options.getChapterText;
       this.ladder = null;
       this.isLoading = false;
+      this.showAll = false;
     }
 
     get cacheKey() {
@@ -414,7 +415,7 @@
      */
     render(ladder) {
       const chapterText = foldKey(this.getChapterText ? this.getChapterText() : '');
-      const isStrict = this.settings.get('spoilerGuard') === 'strong';
+      const isStrict = this.settings.get('spoilerGuard') === 'strong' && !this.showAll;
       const foldFrom = isStrict ? Math.ceil(ladder.steps.length * 0.6) : ladder.steps.length;
 
       const rows = ladder.steps
@@ -436,7 +437,11 @@
       this.panel.setContent(
         '<div class="lorelens-head"><div class="lorelens-titles">' +
           '<h2 class="lorelens-name">' + escapeHtml(ladder.title) + '</h2>' +
-          '<p class="lorelens-native">' + escapeHtml(String(ladder.steps.length)) + ' levels</p>' +
+          '<p class="lorelens-native">' +
+          (foldFrom < ladder.steps.length
+            ? escapeHtml(String(foldFrom)) + ' of ' + escapeHtml(String(ladder.steps.length)) + ' levels'
+            : escapeHtml(String(ladder.steps.length)) + ' levels') +
+          '</p>' +
           '</div></div>' +
           (ladder.intro
             ? '<div class="lorelens-section"><p class="lorelens-text">' +
@@ -451,6 +456,12 @@
               '<span class="lorelens-hidden-hint">Tap to show</span></div>'
             : '') +
           Panel.footer([
+            /* An explicit way to see the whole ladder, always present. Whether
+             * anything is being held back is otherwise invisible — you cannot
+             * tell a short power system from a truncated one by looking. */
+            foldedCount > 0 || !this.showAll
+              ? { action: 'show-all-realms', label: 'Show all levels' }
+              : null,
             ladder.url ? { action: 'open-wiki', label: 'Full page', href: ladder.url } : null,
             { action: 'spacer' },
             { action: 'refresh-realms', label: 'Refresh' },
@@ -463,10 +474,8 @@
     /** Re-render with nothing folded away. */
     revealAll() {
       if (!this.ladder) return;
-      const previous = this.settings.values.spoilerGuard;
-      this.settings.values.spoilerGuard = 'off';
+      this.showAll = true;
       this.render(this.ladder);
-      this.settings.values.spoilerGuard = previous;
     }
 
     /** Drop the cached ladder and fetch it again — for when a wiki updates. */

@@ -79,6 +79,7 @@
       this.buildFab();
       this.watchForChapterChanges();
       this.watchForThemeChanges();
+      this.startWatchdog();
 
       if (!this.settings.get('enabled')) {
         log('LoreLens is switched off in settings');
@@ -246,6 +247,30 @@
       if (this.highlighter.isStillPainted(this.context.root)) return;
       log('marks went missing; re-running');
       this.scan();
+    }
+
+    /**
+     * Check periodically that the marks are still there, and redraw if not.
+     *
+     * A belt-and-braces measure, and worth the cost. The ways a reader can
+     * quietly detach our ranges — re-rendering a chapter, restoring scroll
+     * position, a font-size change, its own scripts touching the DOM — are not
+     * enumerable from in here, and none of them announce themselves. The
+     * failure they produce is total: no marks, no way to get them back short of
+     * leaving the novel. The check is a handful of property reads, so it can
+     * afford to run on a timer.
+     */
+    startWatchdog() {
+      const self = this;
+      window.setInterval(guard('app.watchdog', function () {
+        if (document.hidden) return;
+        self.revalidateHighlights();
+      }), 3000);
+
+      /* Coming back to the reader is a likely moment to have been disturbed. */
+      document.addEventListener('visibilitychange', guard('app.visible', function () {
+        if (!document.hidden) self.revalidateHighlights();
+      }));
     }
 
     scan() {
@@ -566,7 +591,7 @@
         this.realms.show();
         return;
       }
-      if (action === 'reveal-ladder') {
+      if (action === 'reveal-ladder' || action === 'show-all-realms') {
         this.realms.revealAll();
         return;
       }

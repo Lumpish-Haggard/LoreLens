@@ -49,10 +49,15 @@ if (!/^\s*\/\*/.test(dist) || !dist.includes('(function')) {
 
 /* ---- 3. Namespacing. We are a guest in someone else's page. */
 
+// Standard window properties we may legitimately write. These are not globals
+// we are introducing, they are part of the platform.
+const WRITABLE_WINDOW_PROPERTIES = new Set(['name']);
+
 // A single "=" only — "window.Foo === 'function'" is a feature test, not an assignment.
 const globalAssignments = [...dist.matchAll(/\bwindow\.([A-Za-z_$][\w$]*)\s*=(?![=>])/g)].map((m) => m[1]);
 for (const name of new Set(globalAssignments)) {
-  if (!/^__?[Ll]ore[Ll]ens/.test(name) && !/^[Ll]ore[Ll]ens/.test(name)) {
+  if (WRITABLE_WINDOW_PROPERTIES.has(name)) continue;
+  if (!/^_{0,2}[Ll]ore[Ll]ens/.test(name)) {
     fail('Unnamespaced global', `window.${name} — every global must start with "lorelens" or "LoreLens".`);
   }
 }
@@ -79,7 +84,9 @@ if (scriptInjection) {
 
 /* ---- 5. Network destinations are declared and limited. */
 
-const urls = [...dist.matchAll(/https?:\/\/[^'"`\s)]+/g)].map((m) => m[0]);
+// Comments are stripped first, but string literals are kept: a URL in prose is
+// documentation, a URL in a string is somewhere we actually talk to.
+const urls = [...stripComments(dist).matchAll(/https?:\/\/[^'"`\s)]+/g)].map((m) => m[0]);
 const ALLOWED_HOSTS = [
   'fandom.com',
   'wikia.nocookie.net',
@@ -123,8 +130,11 @@ if (rawInterpolation.length > 0) {
 
 const kb = Buffer.byteLength(dist, 'utf8') / 1024;
 notes.push(`dist is ${kb.toFixed(1)} KB`);
-if (kb > 200) {
-  fail('Too large', `${kb.toFixed(1)} KB. Keep it under 200 KB — people paste this by hand.`);
+// The ceiling is generous because installing is an Import from a file rather
+// than a paste into a text box. It is still a ceiling: this gets carried onto
+// a phone and read by people deciding whether to trust it.
+if (kb > 256) {
+  fail('Too large', `${kb.toFixed(1)} KB. Keep it under 256 KB.`);
 }
 
 /* ---- 9. Version is a single source of truth. */
@@ -142,6 +152,11 @@ if (versions.size !== 1) {
 }
 
 /* -------------------------------------------------------------- reporting */
+
+/** Comments only, leaving string literals intact. */
+function stripComments(text) {
+  return text.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/(^|[^:])\/\/.*$/gm, '$1');
+}
 
 /** Crude but adequate: we only need to avoid matching inside comments/strings. */
 function stripCommentsAndStrings(text) {

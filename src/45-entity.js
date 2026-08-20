@@ -225,27 +225,80 @@
   }
 
   /**
+   * Sentences that are the wiki talking to its own editors and readers rather
+   * than telling you who somebody is.
+   *
+   * These sit at the very top of an article, which is exactly where we look for
+   * the one-line "who is this" — so without this the panel opens on a notice
+   * about translation policy, and the actual description is buried further
+   * down. Seen in the wild on a large, well-maintained wiki.
+   */
+  function isEditorialNotice(sentence) {
+    const key = foldKey(sentence);
+    if (!key) return true;
+
+    if (/^(this|the) (article|page|section)\b/.test(key)) return true;
+    if (/^(read|listen to|click|see|for) (this|the|more)\b/.test(key)) return true;
+    if (/\b(is based on the official|information and terminology|source material rather than)\b/.test(key)) return true;
+    if (/^(spoiler|warning|note|disclaimer|citation needed)\b/.test(key)) return true;
+    if (/^(not to be confused|for other uses|redirects here)\b/.test(key)) return true;
+
+    /* A "sentence" that is mostly a link, or has almost no words in it. */
+    if (/^https?:\/\//.test(key)) return true;
+    const words = key.replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+    return words.length < 3;
+  }
+
+  /**
+   * Tidy a wiki extract before anything reads it.
+   *
+   * Strips bare URLs, which sentence-splitting otherwise chops at every dot and
+   * renders as "https://example. fandom. com/...", and strips the run of
+   * citation backlinks a wiki appends to its own text.
+   */
+  function cleanExtract(text) {
+    return String(text || '')
+      /* Reference backlinks: an upward arrow followed by its target. */
+      .replace(/[↑↰]\s*[^↑↰]{0,40}(?=[↑↰]|$)/g, ' ')
+      .replace(/https?:\/\/\S+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  /**
    * Split the summary into sections the spoiler guard can reason about, rather
-   * than one opaque blob. The first couple of sentences of a wiki lead are
-   * nearly always a safe "who is this", and the rest is where the trouble is.
+   * than one opaque blob. The opening lines of a wiki lead are nearly always a
+   * safe "who is this" — once the editorial furniture is out of the way — and
+   * the rest is where the trouble is.
    */
   function buildSections(extract) {
-    const sentences = splitSentences(extract);
+    const sentences = splitSentences(cleanExtract(extract));
     if (sentences.length === 0) return [];
 
-    const introCount = Math.min(2, sentences.length);
+    /* Find where the article stops introducing itself and starts describing
+     * the subject. Bounded, so an article that is nothing but notices still
+     * shows something rather than nothing. */
+    let start = 0;
+    while (start < sentences.length && start < 6 && isEditorialNotice(sentences[start])) {
+      start += 1;
+    }
+    if (start >= sentences.length) start = 0;
+
+    const useful = sentences.slice(start);
+    const introCount = Math.min(2, useful.length);
+
     const sections = [
       {
         title: 'Who this is',
-        body: sentences.slice(0, introCount).join(' '),
+        body: useful.slice(0, introCount).join(' '),
         alwaysSafe: true,
       },
     ];
 
-    if (sentences.length > introCount) {
+    if (useful.length > introCount) {
       sections.push({
         title: 'More',
-        body: sentences.slice(introCount).join(' '),
+        body: useful.slice(introCount).join(' '),
         alwaysSafe: false,
       });
     }
