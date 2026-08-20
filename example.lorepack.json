@@ -1,0 +1,52 @@
+{
+  "schemaVersion": 1,
+  "source": "example.fandom.com",
+  "generatedAt": "2026-08-19T00:00:00.000Z",
+  "entities": [
+    {
+      "id": "gu-changge",
+      "name": "Gu Changge",
+      "aliases": ["Young Master Gu", "Changge"],
+      "type": "character",
+      "native": "顾长歌",
+      "romanized": "gù cháng gē",
+      "image": "https://static.wikia.nocookie.net/example/images/portrait.png",
+      "chips": [
+        { "label": "Alive", "tone": "good" },
+        { "label": "Ancient Immortal", "tone": "accent" },
+        { "label": "Male", "tone": "neutral" }
+      ],
+      "sections": [
+        {
+          "title": "Background & context",
+          "body": "Short spoiler-safe summary shown as soon as the sheet opens.",
+          "isSpoiler": false
+        },
+        {
+          "title": "Later arcs",
+          "body": "Anything you want blurred until the reader taps Show spoiler.",
+          "isSpoiler": true
+        }
+      ],
+      "wikiUrl": "https://example.fandom.com/wiki/Gu_Changge"
+    },
+    {
+      "id": "river-of-time",
+      "name": "River of Time",
+      "aliases": [],
+      "type": "term",
+      "native": "",
+      "romanized": "",
+      "image": "",
+      "chips": [{ "label": "Concept", "tone": "neutral" }],
+      "sections": [
+        {
+          "title": "What it is",
+          "body": "Entities do not have to be characters. Locations, techniques, sects and cultivation ranks all work the same way.",
+          "isSpoiler": false
+        }
+      ],
+      "wikiUrl": "https://example.fandom.com/wiki/River_of_Time"
+    }
+  ]
+}
