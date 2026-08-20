@@ -37,21 +37,7 @@ git push -u origin main
 The first time you push, Git will ask you to sign in. Let it open a browser and
 authorise — that is the easiest path and you will not have to do it again.
 
-### 3. Replace the placeholders
-
-Several files say `OWNER` where your GitHub username belongs. Fix them all at
-once:
-
-```bash
-git grep -l OWNER | xargs sed -i 's/OWNER/YOUR-USERNAME/g'
-git commit -am "docs: point links at the real repository"
-git push
-```
-
-On Windows without `sed`, use your editor's find-and-replace across the folder —
-it is the same job.
-
-### 4. Fill in the repository's description
+### 3. Fill in the repository's description
 
 On the repository page, click the gear next to **About** on the right, and add a
 description and topics. Suggested topics: `lnreader`, `light-novel`, `webnovel`,

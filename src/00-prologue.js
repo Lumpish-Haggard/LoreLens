@@ -22,7 +22,7 @@
  *    you tap it. No cookies are sent. Nothing about you is sent.
  *
  *  Install, docs, and how to report a bug
- *    https://github.com/OWNER/LoreLens
+ *    https://github.com/Lumpish-Haggard/LoreLens
  *
  *  MIT licensed. Built by people who got tired of googling "who is <name>" and
  *  being spoiled by the first result.

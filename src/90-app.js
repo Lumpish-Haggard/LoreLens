@@ -14,7 +14,10 @@
       this.panel = null;
       this.settingsView = null;
       this.selection = null;
+      this.realms = null;
+      this.fabs = null;
       this.fab = null;
+      this.realmsFab = null;
       this.currentEntity = null;
       this.currentTerm = '';
       this.observer = null;
@@ -32,7 +35,7 @@
       this.settings.useNovel(this.context.novelKey);
       this.settings.advanceProgress(this.context.chapterNumber);
 
-      applyStyleSheet(this.context.palette);
+      applyStyleSheet(this.context.palette, this.settings);
 
       this.highlighter = new Highlighter(this.index, this.settings);
       this.panel = new Panel({
@@ -57,6 +60,17 @@
         onLookup: guardAsync('app.selectionLookup', function (term) {
           return self.lookup(term);
         }),
+      });
+
+      this.realms = new RealmsGuide({
+        wiki: this.wiki,
+        store: this.store,
+        settings: this.settings,
+        panel: this.panel,
+        getChapterText: function () {
+          const root = self.context.root;
+          return (root && (root.innerText || root.textContent)) || '';
+        },
       });
 
       this.bindTaps();
@@ -515,6 +529,26 @@
         this.settings.values.spoilerGuard = previous;
         return;
       }
+      if (action === 'realms') {
+        this.realms.show();
+        return;
+      }
+      if (action === 'reveal-ladder') {
+        this.realms.revealAll();
+        return;
+      }
+      if (action === 'refresh-realms') {
+        this.realms.refresh();
+        return;
+      }
+      if (action === 'search-realms') {
+        window.open(
+          this.wiki.host() + '/wiki/Special:Search?query=' + encodeURIComponent('cultivation realms'),
+          '_blank',
+          'noopener',
+        );
+        return;
+      }
       if (action === 'search-web') {
         const url =
           this.wiki.host() + '/wiki/Special:Search?query=' + encodeURIComponent(this.currentTerm);
@@ -593,7 +627,13 @@
         });
         return;
       }
-      if (key === 'showButton') {
+      if (key === 'highlightStyle' || key === 'highlightColor') {
+        /* Only the stylesheet changes — the ranges are already registered, so
+         * the marks repaint without walking the chapter again. */
+        applyStyleSheet(this.context.palette, this.settings);
+        return;
+      }
+      if (key === 'showButton' || key === 'showRealmsButton') {
         this.updateFabVisibility();
       }
     }
@@ -602,23 +642,52 @@
 
     buildFab() {
       const self = this;
-      this.fab = document.createElement('button');
-      this.fab.className = 'lorelens-ui lorelens-fab';
-      this.fab.setAttribute('type', 'button');
-      this.fab.setAttribute('aria-label', 'LoreLens settings');
-      this.fab.textContent = 'L';
-      this.fab.addEventListener('click', guard('app.fab', function (event) {
-        event.preventDefault();
-        event.stopPropagation();
+
+      this.fabs = document.createElement('div');
+      this.fabs.className = 'lorelens-ui lorelens-fabs';
+
+      const makeButton = function (label, description, onTap) {
+        const button = document.createElement('button');
+        button.className = 'lorelens-fab';
+        button.setAttribute('type', 'button');
+        button.setAttribute('aria-label', description);
+        button.setAttribute('title', description);
+        button.textContent = label;
+        button.addEventListener('click', guard('app.fab', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onTap();
+        }));
+        return button;
+      };
+
+      /* The ladder sits above the settings button: it is the one people reach
+       * for mid-chapter, and the thumb gets there first. */
+      this.realmsFab = makeButton('☰', 'Cultivation levels in this world', function () {
+        self.realms.show();
+      });
+      this.fab = makeButton('L', 'LoreLens settings', function () {
         self.settingsView.render();
-      }));
-      (document.body || document.documentElement).appendChild(this.fab);
+      });
+
+      this.fabs.appendChild(this.realmsFab);
+      this.fabs.appendChild(this.fab);
+      (document.body || document.documentElement).appendChild(this.fabs);
       this.updateFabVisibility();
     }
 
     updateFabVisibility() {
-      if (!this.fab) return;
-      this.fab.style.display = this.settings.get('showButton') ? 'flex' : 'none';
+      if (this.fab) {
+        this.fab.style.display = this.settings.get('showButton') ? 'flex' : 'none';
+      }
+      if (this.realmsFab) {
+        this.realmsFab.style.display = this.settings.get('showRealmsButton') ? 'flex' : 'none';
+      }
+      if (this.fabs) {
+        const anyVisible =
+          this.settings.get('showButton') || this.settings.get('showRealmsButton');
+        this.fabs.style.display = anyVisible ? 'flex' : 'none';
+      }
     }
 
     /* ------------------------------------------------------------ watching */
@@ -665,7 +734,7 @@
       const refresh = debounce(guard('app.theme', function () {
         const palette = self.context.buildPalette();
         self.context.palette = palette;
-        applyStyleSheet(palette);
+        applyStyleSheet(palette, self.settings);
       }), 500);
 
       if (window.matchMedia) {

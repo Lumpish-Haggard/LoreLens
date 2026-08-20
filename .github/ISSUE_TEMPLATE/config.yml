@@ -1,8 +1,8 @@
 blank_issues_enabled: false
 contact_links:
   - name: Question, idea, or "is this thing on?"
-    url: https://github.com/OWNER/LoreLens/discussions
+    url: https://github.com/Lumpish-Haggard/LoreLens/discussions
     about: Anything that is not a bug report or a concrete feature request.
   - name: Installation help
-    url: https://github.com/OWNER/LoreLens/blob/main/docs/TROUBLESHOOTING.md
+    url: https://github.com/Lumpish-Haggard/LoreLens/blob/main/docs/TROUBLESHOOTING.md
     about: Most install problems are one of six known things. Check here first.

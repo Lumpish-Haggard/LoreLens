@@ -10,10 +10,71 @@
    * may style a bare element selector: this stylesheet is a guest in someone
    * else's document and a rule on `p` or `button` would leak into the chapter.
    */
-  function buildStyleSheet(palette) {
+  /**
+   * The declarations a marked name is painted with.
+   *
+   * Split out because the same rules have to serve both the painted path and
+   * the wrapping fallback, and because only a subset of CSS applies inside
+   * ::highlight() — anything that would move text is ignored there. That is why
+   * weight is faked with a tight text-shadow rather than set with font-weight,
+   * which the browser silently drops. The shadow also avoids reflowing the
+   * paragraph, which real bold would do on the wrapping path.
+   */
+  function buildMarkRules(palette, settings) {
+    const choice = settings ? settings.get('highlightColor') : 'violet';
+    const entry = MARK_COLORS[choice];
+    const color = choice === 'theme' || !entry
+      ? palette.accent
+      : (palette.isDark ? entry.dark : entry.light);
+
+    const solid = toCss(color);
+    const wash = toCss(color, palette.isDark ? 0.26 : 0.17);
+    const washFaint = toCss(color, palette.isDark ? 0.13 : 0.08);
+    const fauxBold = 'text-shadow:0 0 .5px ' + solid + ',0 0 .5px ' + solid + ';';
+    const style = (settings && settings.get('highlightStyle')) || 'marker';
+
+    if (style === 'underline') {
+      return {
+        confirmed:
+          'color:' + solid + ';text-decoration:underline;text-decoration-color:' +
+          toCss(color, 0.7) + ';text-decoration-thickness:2px;text-underline-offset:3px;',
+        guessed:
+          'color:' + toCss(color, 0.75) + ';text-decoration:underline dotted;' +
+          'text-decoration-color:' + toCss(color, 0.45) + ';text-underline-offset:3px;',
+        pressed: wash,
+      };
+    }
+
+    if (style === 'bold') {
+      return {
+        confirmed: 'color:' + solid + ';' + fauxBold,
+        guessed: 'color:' + toCss(color, 0.72) + ';',
+        pressed: wash,
+      };
+    }
+
+    /* 'marker' — a wash behind the word, the way a highlighter pen reads.
+     * No solid underline anywhere, so it cannot be mistaken for a link.
+     *
+     * A guess gets a dotted underline rather than just a fainter wash. A wash
+     * alone at low enough opacity to read as "unsure" is too faint to notice at
+     * all on a phone, which makes the marking pointless — dotted reads as
+     * tentative while staying visible, and dotted-and-violet is nobody's idea
+     * of a hyperlink. */
+    return {
+      confirmed: 'color:' + solid + ';background-color:' + wash + ';' + fauxBold,
+      guessed:
+        'color:' + toCss(color, 0.92) + ';background-color:' + washFaint + ';' +
+        'text-decoration:underline dotted;text-decoration-color:' + toCss(color, 0.6) +
+        ';text-underline-offset:3px;',
+      pressed: toCss(color, palette.isDark ? 0.42 : 0.3),
+    };
+  }
+
+  function buildStyleSheet(palette, settings) {
+    const mark = buildMarkRules(palette, settings);
     const accent = toCss(palette.accent);
     const accentSoft = toCss(palette.accent, 0.16);
-    const accentFaint = toCss(palette.accent, 0.1);
     const surface = toCss(palette.surface);
     const surfaceRaised = toCss(palette.surfaceRaised);
     const text = toCss(palette.foreground);
@@ -24,32 +85,16 @@
     return [
       /* ---- how a known name looks in the prose ---- */
 
-      '::highlight(' + HIGHLIGHT_NAME + '){',
-      'background-color:' + accentSoft + ';',
-      'text-decoration:underline;',
-      'text-decoration-color:' + toCss(palette.accent, 0.55) + ';',
-      'text-decoration-thickness:1px;',
-      'text-underline-offset:2px;}',
+      '::highlight(' + HIGHLIGHT_NAME + '){' + mark.confirmed + '}',
+      '::highlight(' + HIGHLIGHT_NAME + '-guess){' + mark.guessed + '}',
 
-      '::highlight(' + HIGHLIGHT_NAME + '-guess){',
-      'background-color:' + accentFaint + ';',
-      'text-decoration:underline dotted;',
-      'text-decoration-color:' + toCss(palette.foreground, 0.35) + ';',
-      'text-underline-offset:2px;}',
-
-      /* The wrapping fallback has to look identical to the painted version. */
-      '.' + MARK_CLASS + '{',
-      'background-color:' + accentSoft + ';',
-      'text-decoration:underline;',
-      'text-decoration-color:' + toCss(palette.accent, 0.55) + ';',
-      'text-underline-offset:2px;',
-      'cursor:pointer;border-radius:2px;',
+      /* The wrapping fallback must look the same as the painted version, so it
+       * uses the same declarations plus the few a real element can carry. */
+      '.' + MARK_CLASS + '{' + mark.confirmed +
+      'cursor:pointer;border-radius:3px;padding:0 1px;margin:0 -1px;',
       '-webkit-tap-highlight-color:transparent;}',
-      '.' + MARK_CLASS + '--guess{',
-      'background-color:' + accentFaint + ';',
-      'text-decoration-style:dotted;',
-      'text-decoration-color:' + toCss(palette.foreground, 0.35) + ';}',
-      '.' + MARK_CLASS + ':active{background-color:' + toCss(palette.accent, 0.3) + ';}',
+      '.' + MARK_CLASS + '--guess{' + mark.guessed + '}',
+      '.' + MARK_CLASS + ':active{background-color:' + mark.pressed + ';}',
 
       /* ---- shared shell ---- */
 
@@ -167,17 +212,37 @@
       'background:transparent;color:' + text + ';}',
       '.lorelens-choice-sub{display:block;margin-top:3px;font-size:12px;color:' + muted + ';}',
 
-      /* ---- floating button ---- */
+      /* ---- floating buttons ---- */
 
-      '.lorelens-fab{position:fixed;z-index:2147482999;right:14px;',
+      '.lorelens-fabs{position:fixed;z-index:2147482999;right:14px;',
       'bottom:calc(16px + env(safe-area-inset-bottom,0px));',
-      'width:38px;height:38px;border-radius:50%;cursor:pointer;',
+      'display:flex;flex-direction:column;gap:8px;}',
+      '.lorelens-fab{',
+      'width:38px;height:38px;border-radius:50%;cursor:pointer;padding:0;',
       'display:flex;align-items:center;justify-content:center;',
       'font-size:15px;font-weight:700;letter-spacing:-.02em;',
       'border:1px solid ' + outline + ';background:' + surface + ';color:' + accent + ';',
       'box-shadow:0 3px 12px rgba(0,0,0,.22);opacity:.5;transition:opacity .2s ease;}',
       '.lorelens-fab:active{opacity:1;}',
-      '.lorelens-fab.is-busy{opacity:.9;}',
+
+      /* ---- the power-system ladder ---- */
+
+      '.lorelens-ladder{list-style:none;margin:14px 0 0;padding:0;',
+      'counter-reset:lorelens-rung;}',
+      '.lorelens-rung{display:flex;align-items:baseline;gap:10px;',
+      'padding:7px 9px;border-radius:8px;font-size:14.5px;}',
+      '.lorelens-rung+.lorelens-rung{margin-top:2px;}',
+      '.lorelens-rung-n{flex:none;min-width:1.4em;font-size:11.5px;font-weight:700;',
+      'font-variant-numeric:tabular-nums;color:' + muted + ';}',
+      '.lorelens-rung-name{flex:1;min-width:0;}',
+      '.lorelens-rung-tag{flex:none;font-size:10.5px;font-weight:700;',
+      'letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:99px;',
+      'background:' + accentSoft + ';color:' + accent + ';}',
+      /* The rung the chapter is actually talking about, so the ladder answers
+       * "where am I" as well as "what is the order". */
+      '.lorelens-rung.is-here{background:' + toCss(palette.accent, 0.09) + ';',
+      'box-shadow:inset 2px 0 0 ' + accent + ';}',
+      '.lorelens-rung.is-here .lorelens-rung-name{font-weight:650;}',
 
       /* ---- selection lookup bubble ---- */
 
@@ -216,12 +281,12 @@
   }
 
   /** Install or replace the stylesheet. Called again whenever the theme moves. */
-  function applyStyleSheet(palette) {
+  function applyStyleSheet(palette, settings) {
     let style = document.getElementById('lorelens-styles');
     if (!style) {
       style = document.createElement('style');
       style.id = 'lorelens-styles';
       (document.head || document.documentElement).appendChild(style);
     }
-    style.textContent = buildStyleSheet(palette);
+    style.textContent = buildStyleSheet(palette, settings);
   }

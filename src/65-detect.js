@@ -69,7 +69,15 @@
 
       let match = pattern.exec(text);
       while (match !== null) {
-        const phrase = match[0].replace(/[\s'-]+$/, '').trim();
+        const raw = match[0].replace(/[\s'-]+$/, '').trim();
+
+        /* "The Immortal Ascension Ritual" at the start of a sentence matches
+         * with its capitalised article attached. Rejecting the whole phrase
+         * because it opens with a stopword loses that occurrence entirely, and
+         * a name that only ever appears after "The" then never reaches the
+         * occurrence threshold. Strip the article and keep the name. */
+        const phrase = NameDetector.stripLeadingStopwords(raw);
+
         if (this.isPlausible(phrase)) {
           const key = foldKey(phrase);
           const record = found.get(key) || {
@@ -79,7 +87,9 @@
             words: phrase.split(/\s+/).length,
           };
           record.count += 1;
-          if (!NameDetector.isSentenceInitial(text, match.index)) {
+          /* Having stripped a leading word, the name itself is not at the start
+           * of the sentence, whatever the match offset says. */
+          if (phrase !== raw || !NameDetector.isSentenceInitial(text, match.index)) {
             record.midSentenceCount += 1;
           }
           found.set(key, record);
@@ -90,6 +100,15 @@
       }
 
       return found;
+    }
+
+    /** Drop leading articles and conjunctions, but never everything. */
+    static stripLeadingStopwords(phrase) {
+      const words = phrase.split(/\s+/);
+      while (words.length > 1 && STOPWORDS.has(foldKey(words[0]))) {
+        words.shift();
+      }
+      return words.join(' ');
     }
 
     isPlausible(phrase) {

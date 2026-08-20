@@ -143,6 +143,38 @@ like a redacted document.
 The bias is intentional and worth stating plainly: revealing something takes one
 tap and costs a second, and hiding nothing costs the book.
 
+### How a marked name is painted
+
+Two constraints shaped this and neither is obvious.
+
+A highlight pseudo-element only accepts properties that cannot affect layout —
+colour, background, text-decoration, text-shadow. `font-weight` is silently
+dropped by the browser, so "bold" is produced with a tight `text-shadow` that
+thickens the glyphs without reflowing the line. That also matters on the
+wrapping path, where real bold *would* reflow the paragraph.
+
+And the default colour is deliberately not the reader's own accent. A reader's
+accent is almost always blue, and blue underlined text means "hyperlink" to
+anyone who has used a browser — wrong twice, since it navigates nowhere and the
+reader's genuine footnote links look identical. A marked name gets a coloured
+wash instead, like a highlighter stroke. Confirmed names get the solid wash;
+unconfirmed guesses get a dotted underline, visible but tentative.
+
+`tests/preview.html` exists because none of this can be verified by assertion.
+
+### The power-system ladder
+
+`src/88-realms.js` answers "what are the cultivation levels again", which is one
+of the two questions that send a reader to the wiki mid-chapter — and the wiki
+is where they get spoiled.
+
+Wikis neither agree on what to call that page nor on how to lay it out, so the
+module tries the titles convention produces in one batched existence query, then
+reads the ordering out of whichever structure the page uses: an ordered list, a
+run of headings, a table, or a bulleted list, tried in that order. Rungs named in
+the current chapter are marked, so the ladder answers "where am I" as well as
+"what is the order".
+
 ### Untrusted input
 
 Wiki content is user-generated content from a site we do not control, rendered

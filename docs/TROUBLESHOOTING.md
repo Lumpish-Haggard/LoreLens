@@ -84,6 +84,27 @@ has looked things up.
 *Balanced*, the default, marks anything that looks like a name and quietly
 un-marks the ones the wiki has never heard of.
 
+## The ☰ button says it cannot find a power system
+
+It looks for pages named the way wikis usually name them — Cultivation, Realms,
+Power System, Ranks and a dozen others — and then falls back to the wiki's own
+search. Some wikis file it under something nobody would guess, and plenty of
+novels have no ranking system at all.
+
+If the wiki does have such a page, please
+[open an issue](../../issues/new?template=wiki_compat.yml) with its URL. Adding
+a title to the list in `src/88-realms.js` is a one-line change and a good first
+pull request.
+
+## The ladder is in the wrong order, or full of junk
+
+The rungs are read out of whatever structure the page uses — a numbered list, a
+run of headings, a table. A page that puts its realms in prose, or in a layout
+none of those describe, will come out wrong.
+
+Worth reporting with the page URL. Tap **Refresh** in the ladder panel after a
+fix ships, or the old version stays cached for a few weeks.
+
 ## The panel's colours look wrong against my theme
 
 LoreLens reads the colours your reader is painting and builds a matching palette.

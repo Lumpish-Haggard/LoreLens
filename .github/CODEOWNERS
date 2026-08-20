@@ -1,15 +1,14 @@
 # Every pull request requests a review from the maintainers by default.
-# Replace OWNER with your GitHub username when you set the repository up,
-# and add co-maintainers here as the project grows.
+# Add co-maintainers here as the project grows — one line per area is fine.
 #
 # This file only assigns reviewers. It does not block anything on its own —
 # see docs/GITHUB-SETUP.md for the branch protection rule that does.
 
-*                       @OWNER
+*                       @Lumpish-Haggard
 
 # Areas that benefit from a second pair of eyes, listed separately so that
 # co-maintainers can be given ownership of just the part they know well.
 
-/src/70-highlighter.js  @OWNER
-/src/50-spoilers.js     @OWNER
-/.github/               @OWNER
+/src/70-highlighter.js  @Lumpish-Haggard
+/src/50-spoilers.js     @Lumpish-Haggard
+/.github/               @Lumpish-Haggard

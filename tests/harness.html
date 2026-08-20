@@ -384,6 +384,54 @@ function run() {
   is(app.panel.scroll.querySelectorAll('a[href^="javascript"]').length, 0, 'a javascript: url is never emitted');
   app.panel.close();
 
+  /* -------------------------------------------------------- power system */
+
+  section('power system ladder');
+
+  const orderedPage =
+    '<div class="mw-parser-output">' +
+    '<p>Cultivation in this world is divided into a number of realms, each harder than the last.</p>' +
+    '<ol>' +
+    '<li>Qi Refining — the first steps</li>' +
+    '<li>Foundation Establishment</li>' +
+    '<li>Core Formation</li>' +
+    '<li>Nascent Soul<sup class="reference">[1]</sup></li>' +
+    '<li>Immortal Ascension</li>' +
+    '</ol>' +
+    '<h2>References</h2><ul><li>a</li><li>b</li><li>c</li></ul>' +
+    '</div>';
+
+  const ladder = I.RealmsGuide.parseLadder(orderedPage);
+  is(ladder.length, 5, 'reads five rungs out of an ordered list');
+  is(ladder[0], 'Qi Refining', 'strips the description after a dash');
+  is(ladder[3], 'Nascent Soul', 'strips a citation marker');
+  is(ladder[4], 'Immortal Ascension', 'keeps the order the page gives');
+  notOk(ladder.indexOf('References') >= 0, 'a References heading is not a rung');
+
+  const intro = I.RealmsGuide.parseIntro(orderedPage);
+  ok(intro.indexOf('divided into a number of realms') >= 0, 'reads an intro paragraph');
+
+  const headingPage =
+    '<div class="mw-parser-output">' +
+    '<h2>Mortal Realm</h2><p>text</p>' +
+    '<h2>Spirit Realm</h2><p>text</p>' +
+    '<h2>Saint Realm</h2><p>text</p>' +
+    '<h2>Gallery</h2><p>images</p>' +
+    '<h2>Trivia</h2><p>facts</p>' +
+    '</div>';
+  const fromHeadings = I.RealmsGuide.parseLadder(headingPage);
+  is(fromHeadings.length, 3, 'falls back to headings and drops the boilerplate ones');
+  is(fromHeadings[0], 'Mortal Realm', 'keeps heading order');
+
+  const dupePage =
+    '<div class="mw-parser-output"><ol>' +
+    '<li>Bronze</li><li>Silver</li><li>bronze</li><li>Gold</li>' +
+    '</ol></div>';
+  is(I.RealmsGuide.parseLadder(dupePage).length, 3, 'de-duplicates case-insensitively');
+
+  is(I.RealmsGuide.parseLadder('<div class="mw-parser-output"><p>nothing here</p></div>').length, 0,
+    'a page with no ladder yields nothing rather than junk');
+
   /* ------------------------------------------------------------ lorepack */
 
   section('lorepack validation');

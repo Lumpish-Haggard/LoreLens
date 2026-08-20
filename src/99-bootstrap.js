@@ -27,6 +27,11 @@
         app.settingsView.render();
       }),
 
+      /** Open this world's cultivation / rank ladder. */
+      realms: guard('api.realms', function () {
+        return app.realms.show();
+      }),
+
       /** Everything we know about this environment, as text. */
       diagnostics: guard('api.diagnostics', function () {
         return app.settingsView.buildDiagnostics(app.highlighter);
@@ -50,6 +55,7 @@
         Settings: Settings,
         Store: Store,
         Panel: Panel,
+        RealmsGuide: RealmsGuide,
         buildEntity: buildEntity,
         parseInfobox: parseInfobox,
         stripWikiHtml: stripWikiHtml,

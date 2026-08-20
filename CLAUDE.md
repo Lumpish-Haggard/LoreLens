@@ -83,6 +83,7 @@ prefix encodes dependency order:
 82-panel         the sheet
 84-settings-ui   the settings form and diagnostics
 86-selection     select-text-to-look-up
+88-realms        the cultivation / rank ladder behind the ☰ button
 90-app           orchestration
 99-bootstrap     window.lorelens API, startup
 ```
@@ -107,6 +108,13 @@ behave the same under a simulated DOM.
 
 The suite prints `RESULT n passed, m failed`; `tests/run.mjs` exits non-zero if
 `m > 0`.
+
+`tests/preview.html` is a fake chapter with the real script running on it, for
+**looking at**. Open it after any visual change. The suite can tell you a
+highlight was registered; it cannot tell you the result looks like a hyperlink,
+which is a bug that shipped once already. Deep links open a specific screen:
+`#realms`, `#settings`, `#entry`, and `#light` for the light theme (combine as
+`#light,realms`). Its network is stubbed, so it never touches Fandom.
 
 ## Conventions
 
@@ -133,6 +141,16 @@ The suite prints `RESULT n passed, m failed`; `tests/run.mjs` exits non-zero if
   take effect after a reload, and a reading session lasts hours.
 - **Auto-detected names are indexed as guesses and painted differently.** A
   guess should look like an offer, not a promise.
+- **`font-weight` is absent from the highlight rules and weight is faked with
+  `text-shadow`.** `::highlight()` only accepts properties that cannot affect
+  layout, so the browser silently drops `font-weight` there. Verified visually,
+  not assumed — see `tests/preview.html`.
+- **Marked names do not use the reader's accent colour by default.** A reader's
+  accent is almost always blue, and blue underlined text reads as a hyperlink,
+  which a marked name is not.
+- **`NameDetector` strips leading stopwords from a match.** "The Immortal
+  Ascension Ritual" at a sentence start would otherwise be rejected whole, and
+  the name would never reach the occurrence threshold.
 
 ## When changing behaviour
 
@@ -148,8 +166,9 @@ The suite prints `RESULT n passed, m failed`; `tests/run.mjs` exits non-zero if
   `tools/check.mjs`, which is a deliberate speed bump — think about whether it
   belongs.
 
-## Placeholders
+## Repository
 
-`OWNER` appears in URLs across the docs, `.github/CODEOWNERS` and the source
-banner, standing in for the GitHub account that hosts the repository. If you are
-asked to set the project up, replace them all; see `docs/GITHUB-SETUP.md`.
+Hosted at `github.com/Lumpish-Haggard/LoreLens`. That URL appears in the docs,
+`.github/CODEOWNERS`, the issue-template links and the banner at the top of the
+built file — if the repository ever moves, those all need updating together.
+Note that `.github/CODEOWNERS` is a filename, not an instance of the owner name.

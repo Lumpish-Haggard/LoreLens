@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoreLens preview</title>
+<!--
+  A fake chapter with the real script running on it, for looking at.
+
+  Open this in a browser after changing anything visual. The test suite can tell
+  you that a highlight was registered; it cannot tell you that the result looks
+  like a hyperlink, which is a real bug that shipped once already.
+
+  The network is stubbed, so this never touches Fandom.
+-->
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font-family: Georgia, 'Times New Roman', serif; }
+  .bar {
+    font: 13px/1 -apple-system, 'Segoe UI', Roboto, sans-serif;
+    padding: 12px 16px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+    background: #1c1f26; color: #aab; border-bottom: 1px solid #2c3038;
+  }
+  .bar button {
+    font: inherit; padding: 6px 11px; border-radius: 7px; cursor: pointer;
+    border: 1px solid #3a3f4a; background: #22262e; color: #ccd;
+  }
+  .bar strong { color: #e6e6ea; }
+
+  /* Stand-ins for a reader's own theme. LoreLens reads these off the page. */
+  #LNReader-chapter {
+    max-width: 38em; margin: 0 auto; padding: 28px 22px 120px;
+    font-size: 18px; line-height: 1.75;
+  }
+  body.dark  #LNReader-chapter { background: #14161a; color: #d3d3d6; }
+  body.light #LNReader-chapter { background: #fbf7ef; color: #23201b; }
+  body.dark  { background: #14161a; }
+  body.light { background: #fbf7ef; }
+  #LNReader-chapter h2 { font-size: 1.15em; opacity: .75; font-weight: 600; }
+  #LNReader-chapter a { color: #6a9bff; }
+</style>
+</head>
+<body class="dark">
+
+<div class="bar">
+  <strong>LoreLens preview</strong>
+  <button onclick="document.body.className='dark';location.hash='dark'">Dark</button>
+  <button onclick="document.body.className='light';location.hash='light'">Light</button>
+  <button onclick="lorelens.settings()">Open settings</button>
+  <button onclick="localStorage.clear();location.reload()">Reset</button>
+  <span>— tap a marked name. A real link is in the last paragraph, for comparison.</span>
+</div>
+
+<div id="LNReader-chapter">
+  <h2>Chapter 412 — The River of Time</h2>
+
+  <p>Gu Changge stood at the edge of the River of Time, watching the current fold
+  back on itself. Somewhere beneath it, the Immortal Ascension Ritual was still
+  turning, as it had turned for an age before he was born.</p>
+
+  <p>Chan Hongyi and Tao Yao could be seen in different segments of that river,
+  each convinced the other was the illusion. Gu Changge did not interfere. The
+  truths that Chan Hongyi and Tao Yao saw were both true, which was the joke of
+  the place.</p>
+
+  <p>Yue Mingkong watched him from the far bank. She had followed him here across
+  three lifetimes, and Yue Mingkong had never once asked him to explain himself —
+  which he had always taken as the greater courtesy.</p>
+
+  <p>The Immortal Ascension Ritual shuddered. Somewhere upstream, the Gu Family
+  had begun to move.</p>
+
+  <p style="opacity:.7;font-size:.9em">Translator's note: see the
+  <a href="#nowhere">glossary</a> for the terms in this arc. That link is a real
+  link — a marked name should not look like it.</p>
+</div>
+
+<script>
+/* Never hit the network from a preview page. Every title resolves. */
+const CULTIVATION_PAGE =
+  '<div class="mw-parser-output">' +
+  '<p>Cultivation in the Upper Realm is divided into nine realms. Each demands more ' +
+  'of the body than the one before it, and fewer than one in a thousand pass the third.</p>' +
+  '<ol>' +
+  '<li>Qi Refining — drawing the first breath of the world</li>' +
+  '<li>Foundation Establishment</li>' +
+  '<li>Core Formation</li>' +
+  '<li>Nascent Soul</li>' +
+  '<li>Spirit Severing</li>' +
+  '<li>Dao Seeking</li>' +
+  '<li>Immortal Ascension</li>' +
+  '<li>Great Sacred Realm</li>' +
+  '<li>Eternal Sovereign</li>' +
+  '</ol><h2>References</h2></div>';
+
+window.fetch = function (url) {
+  const params = new URLSearchParams(String(url).split('?')[1] || '');
+  const json = (payload) => Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(payload) });
+  const titles = params.get('titles') || '';
+
+  if (params.get('meta') === 'siteinfo') return json({ query: { general: { sitename: 'Preview Wiki' } } });
+
+  if (params.get('action') === 'parse') return json({ parse: { text: CULTIVATION_PAGE } });
+
+  /* The batched existence check the ladder does: many titles, one request. */
+  if (titles.indexOf('|') >= 0) {
+    return json({ query: { pages: titles.split('|').map((t) => (
+      t === 'Cultivation' ? { title: t } : { title: t, missing: true }
+    )) } });
+  }
+
+  if (params.get('prop')) {
+    const title = titles || 'Someone';
+    return json({ query: { pages: [{
+      title,
+      extract: title + ' is a figure of some importance in this arc. They are known ' +
+               'across the Upper Realm. In Chapter 900 everything about them changes.',
+      fullurl: 'https://example.fandom.com/wiki/' + encodeURIComponent(title),
+    }] } });
+  }
+  return json({});
+};
+
+/* Pin a wiki so discovery does not have to run, and start at chapter 412. */
+localStorage.setItem('lorelens:v2:settings', JSON.stringify({
+  savedAt: Date.now(), expiresAt: 0,
+  value: { wiki: 'preview', chapterProgress: 412 },
+}));
+
+if (location.hash === '#light') document.body.className = 'light';
+</script>
+
+<script src="../dist/lorelens.js"></script>
+
+<script>
+/* Deep links, so a particular panel can be opened straight from the address
+   bar — handy for eyeballing one screen without clicking to it every time.
+     #realms   the cultivation ladder
+     #settings the settings form
+     #entry    a looked-up character
+     #light    the light theme (combine as #light,realms) */
+window.addEventListener('load', function () {
+  const want = location.hash.slice(1).split(',');
+  if (want.indexOf('light') >= 0) document.body.className = 'light';
+  setTimeout(function () {
+    if (want.indexOf('realms') >= 0) lorelens.realms();
+    else if (want.indexOf('settings') >= 0) lorelens.settings();
+    else if (want.indexOf('entry') >= 0) lorelens.open('Gu Changge');
+  }, 700);
+});
+</script>
+</body>
+</html>

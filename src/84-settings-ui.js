@@ -74,6 +74,26 @@
         '</select></div>' +
 
         '<div class="lorelens-field">' +
+        '<label class="lorelens-label" for="lorelens-hlstyle">Marked names look like</label>' +
+        '<select class="lorelens-select" id="lorelens-hlstyle">' +
+        SettingsView.option('marker', 'Highlighter marker', settings.get('highlightStyle')) +
+        SettingsView.option('bold', 'Coloured and bold', settings.get('highlightStyle')) +
+        SettingsView.option('underline', 'Underlined', settings.get('highlightStyle')) +
+        '</select>' +
+        '<p class="lorelens-help">A marked name is not a link and should not look like one — ' +
+        'your reader\'s own footnote links are the blue underlined text.</p></div>' +
+
+        '<div class="lorelens-field">' +
+        '<label class="lorelens-label" for="lorelens-hlcolor">Marker colour</label>' +
+        '<select class="lorelens-select" id="lorelens-hlcolor">' +
+        SettingsView.option('violet', 'Violet', settings.get('highlightColor')) +
+        SettingsView.option('amber', 'Amber', settings.get('highlightColor')) +
+        SettingsView.option('teal', 'Teal', settings.get('highlightColor')) +
+        SettingsView.option('rose', 'Rose', settings.get('highlightColor')) +
+        SettingsView.option('theme', "Match my reader's theme", settings.get('highlightColor')) +
+        '</select></div>' +
+
+        '<div class="lorelens-field">' +
         SettingsView.toggle('firstMentionOnly', 'First mention only',
           'Mark a name once per paragraph instead of every time.', settings) +
         SettingsView.toggle('selectionLookup', 'Look up selected text',
@@ -82,7 +102,9 @@
           'Quietly fetch the most common names so taps open instantly.', settings) +
         SettingsView.toggle('liveLookup', 'Use the wiki',
           'Turn off to stop all network requests.', settings) +
-        SettingsView.toggle('showButton', 'Show the round button', '', settings) +
+        SettingsView.toggle('showRealmsButton', 'Show the ladder button',
+          'The button that lists this world\'s cultivation levels.', settings) +
+        SettingsView.toggle('showButton', 'Show the settings button', '', settings) +
         SettingsView.toggle('enabled', 'LoreLens is on', '', settings) +
         '</div>' +
 
@@ -203,6 +225,22 @@
         detectionSelect.addEventListener('change', guard('settings.detection', function () {
           self.settings.set('detection', detectionSelect.value);
           self.onApply('detection');
+        }));
+      }
+
+      const styleSelect = root.querySelector('#lorelens-hlstyle');
+      if (styleSelect) {
+        styleSelect.addEventListener('change', guard('settings.hlstyle', function () {
+          self.settings.set('highlightStyle', styleSelect.value);
+          self.onApply('highlightStyle');
+        }));
+      }
+
+      const colorSelect = root.querySelector('#lorelens-hlcolor');
+      if (colorSelect) {
+        colorSelect.addEventListener('change', guard('settings.hlcolor', function () {
+          self.settings.set('highlightColor', colorSelect.value);
+          self.onApply('highlightColor');
         }));
       }
     }

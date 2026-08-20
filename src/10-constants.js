@@ -47,6 +47,28 @@
   const HIGHLIGHT_NAME = 'lorelens-term';
   const MARK_CLASS = 'lorelens-term';
 
+  /**
+   * Colours a marked name can be painted in, per theme.
+   *
+   * Deliberately not the reader's own accent colour by default. A reader's
+   * accent is almost always blue, and blue underlined text means "link" to
+   * everyone who has ever used a browser — which is wrong here twice over: it
+   * does not navigate anywhere, and the reader's own footnote and source links
+   * genuinely are links. A marked name should read as a highlighter stroke over
+   * the page, not as something to click through.
+   *
+   * Note that a highlight can only be styled with properties that do not affect
+   * layout — colour, background, text-decoration, text-shadow. font-weight is
+   * ignored by the browser here, so weight is simulated with a tight
+   * text-shadow instead, which thickens the glyphs without reflowing the line.
+   */
+  const MARK_COLORS = {
+    violet: { dark: { r: 201, g: 184, b: 255 }, light: { r: 106, g: 42, b: 200 } },
+    amber: { dark: { r: 252, g: 211, b: 120 }, light: { r: 163, g: 88, b: 10 } },
+    teal: { dark: { r: 110, g: 231, b: 213 }, light: { r: 13, g: 110, b: 120 } },
+    rose: { dark: { r: 253, g: 168, b: 190 }, light: { r: 188, g: 30, b: 96 } },
+  };
+
   const MAX_TERM_WORDS = 5;
   const MIN_TERM_LENGTH = 3;
 

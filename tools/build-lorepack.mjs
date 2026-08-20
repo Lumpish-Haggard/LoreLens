@@ -82,7 +82,7 @@ class Fandom {
       headers: {
         // Identifying the tool is the polite thing to do and is what the
         // MediaWiki API etiquette guidelines ask for.
-        'user-agent': 'LoreLens-lorepack-builder/2.0 (https://github.com/OWNER/LoreLens)',
+        'user-agent': 'LoreLens-lorepack-builder/2.0 (https://github.com/Lumpish-Haggard/LoreLens)',
       },
     });
     if (!response.ok) throw new Error(`HTTP ${response.status} on ${params.action}`);

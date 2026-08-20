@@ -57,6 +57,7 @@ someone's reading session.
 | `tools/build.mjs` | The concatenator. ~100 lines, no dependencies. |
 | `tools/build-lorepack.mjs` | Optional: Fandom wiki → offline lorepack JSON. |
 | `tests/harness.html` | The test suite. Runs in a browser or headless. |
+| `tests/preview.html` | A fake chapter with the real script on it, for looking at. |
 | `tests/run.mjs` | Finds Chrome/Edge, runs the harness headless, reports pass/fail. |
 | `docs/` | User-facing documentation. |
 
@@ -99,6 +100,17 @@ offline.
 
 Add a test when you fix a bug. It does not need to be elaborate; one assertion
 that would have caught the bug is enough.
+
+### Looking at it
+
+`tests/preview.html` is a fake chapter with the real script running on it. Open
+it in a browser — no build server, no install — after any change that affects
+how something looks. Add `#realms`, `#settings` or `#entry` to the URL to open
+a particular panel, and `#light` for the light theme.
+
+Please do this. The suite can assert that a highlight was registered; it cannot
+tell you that the result looks like a hyperlink, which is exactly the bug that
+shipped in an earlier version.
 
 ### Manual testing checklist
 

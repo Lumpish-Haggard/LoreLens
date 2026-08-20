@@ -84,6 +84,17 @@ connection at all.
 character introduced once, four hundred chapters ago, under a title nobody uses
 any more.
 
+**Tells you the cultivation ladder.** Every progression novel has one, and
+eighty chapters in you have lost track of whether Nascent Soul sits above or
+below Golden Core. The **☰** button in the corner reads the wiki's power-system
+page and shows the realms in order — and marks the rung this chapter is talking
+about. One tap, instead of the trip to the wiki that gets you spoiled.
+
+**Does not look like a hyperlink.** A marked name gets a coloured highlighter
+wash, not blue underlined text. Your reader's own footnote links are the blue
+underlined text; a name you can tap for lore is a different thing and should
+look like one. Colour and style are both configurable.
+
 ## Settings
 
 Tap the **L** button in the corner. Everything is in there — which wiki, how far
@@ -96,11 +107,17 @@ your reader's storage, so updating LoreLens never wipes them.
 | You are on chapter | auto | Drives the spoiler guard. Fills itself in as you read. |
 | Spoiler guard | Hide what is ahead | Or hide anything final-sounding, or show everything. |
 | How much to highlight | Balanced | Strict marks only confirmed names; generous marks anything name-shaped. |
+| Marked names look like | Highlighter marker | Or coloured-and-bold, or underlined. |
+| Marker colour | Violet | Amber, teal, rose, or match your reader's theme. |
 | First mention only | on | Mark a name once per paragraph rather than every time. |
 | Look up selected text | on | The select-and-tap escape hatch. |
 | Load ahead | on | Quietly fetch common names so the first tap is instant. |
 | Use the wiki | on | Turn off for a fully offline, zero-request setup. |
+| Show the ladder button | on | The **☰** cultivation-levels button. |
 | Custom glossary | empty | Optional hand-written entries. See below. |
+
+A name you have not confirmed yet is marked more quietly — a dotted underline
+rather than a solid wash — so a guess looks like an offer rather than a promise.
 
 ## Does this work with my reader?
 
@@ -157,7 +174,7 @@ bad results, open a
 those are fixed by adding a couple of field names to a list.
 
 ```bash
-git clone https://github.com/OWNER/LoreLens.git
+git clone https://github.com/Lumpish-Haggard/LoreLens.git
 cd LoreLens
 npm run build     # concatenates src/*.js into dist/lorelens.js
 npm test          # runs the suite in real headless Chrome
@@ -184,6 +201,7 @@ src/80-styles       CSS generated from the detected palette
 src/82-panel        the sheet
 src/84-settings-ui  the settings form
 src/86-selection    select-text-to-look-up
+src/88-realms       the cultivation / rank ladder
 src/90-app          orchestration
 src/99-bootstrap    the public API and startup
 ```

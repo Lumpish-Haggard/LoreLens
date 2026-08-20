@@ -23,7 +23,7 @@
  *    you tap it. No cookies are sent. Nothing about you is sent.
  *
  *  Install, docs, and how to report a bug
- *    https://github.com/OWNER/LoreLens
+ *    https://github.com/Lumpish-Haggard/LoreLens
  *
  *  MIT licensed. Built by people who got tired of googling "who is <name>" and
  *  being spoiled by the first result.
@@ -89,6 +89,28 @@
   /** The Custom Highlight API registration name, and the DOM-fallback class. */
   const HIGHLIGHT_NAME = 'lorelens-term';
   const MARK_CLASS = 'lorelens-term';
+
+  /**
+   * Colours a marked name can be painted in, per theme.
+   *
+   * Deliberately not the reader's own accent colour by default. A reader's
+   * accent is almost always blue, and blue underlined text means "link" to
+   * everyone who has ever used a browser — which is wrong here twice over: it
+   * does not navigate anywhere, and the reader's own footnote and source links
+   * genuinely are links. A marked name should read as a highlighter stroke over
+   * the page, not as something to click through.
+   *
+   * Note that a highlight can only be styled with properties that do not affect
+   * layout — colour, background, text-decoration, text-shadow. font-weight is
+   * ignored by the browser here, so weight is simulated with a tight
+   * text-shadow instead, which thickens the glyphs without reflowing the line.
+   */
+  const MARK_COLORS = {
+    violet: { dark: { r: 201, g: 184, b: 255 }, light: { r: 106, g: 42, b: 200 } },
+    amber: { dark: { r: 252, g: 211, b: 120 }, light: { r: 163, g: 88, b: 10 } },
+    teal: { dark: { r: 110, g: 231, b: 213 }, light: { r: 13, g: 110, b: 120 } },
+    rose: { dark: { r: 253, g: 168, b: 190 }, light: { r: 188, g: 30, b: 96 } },
+  };
 
   const MAX_TERM_WORDS = 5;
   const MIN_TERM_LENGTH = 3;
@@ -664,6 +686,17 @@
     firstMentionOnly: true,
 
     /**
+     * How a marked name is painted.
+     *   'marker' — a coloured wash behind the word, like a highlighter pen
+     *   'bold'   — coloured and thickened, no background
+     *   'underline' — a coloured underline, for people who prefer it quiet
+     */
+    highlightStyle: 'marker',
+
+    /** Which colour to mark in: violet, amber, teal, rose, or the reader's own accent. */
+    highlightColor: 'violet',
+
+    /**
      * How much of a wiki entry to hide.
      *   'chapter' — hide anything the wiki ties to a chapter past where you are
      *   'strong'  — the above, plus fate tags and anything that reads final
@@ -685,6 +718,9 @@
 
     /** Show a floating button to open settings. Off leaves only the long-press path. */
     showButton: true,
+
+    /** Show the button that opens this world's cultivation / rank ladder. */
+    showRealmsButton: true,
 
     /** Select any text and get a "Look up" button, even on names we did not highlight. */
     selectionLookup: true,
@@ -2167,7 +2203,15 @@
 
       let match = pattern.exec(text);
       while (match !== null) {
-        const phrase = match[0].replace(/[\s'-]+$/, '').trim();
+        const raw = match[0].replace(/[\s'-]+$/, '').trim();
+
+        /* "The Immortal Ascension Ritual" at the start of a sentence matches
+         * with its capitalised article attached. Rejecting the whole phrase
+         * because it opens with a stopword loses that occurrence entirely, and
+         * a name that only ever appears after "The" then never reaches the
+         * occurrence threshold. Strip the article and keep the name. */
+        const phrase = NameDetector.stripLeadingStopwords(raw);
+
         if (this.isPlausible(phrase)) {
           const key = foldKey(phrase);
           const record = found.get(key) || {
@@ -2177,7 +2221,9 @@
             words: phrase.split(/\s+/).length,
           };
           record.count += 1;
-          if (!NameDetector.isSentenceInitial(text, match.index)) {
+          /* Having stripped a leading word, the name itself is not at the start
+           * of the sentence, whatever the match offset says. */
+          if (phrase !== raw || !NameDetector.isSentenceInitial(text, match.index)) {
             record.midSentenceCount += 1;
           }
           found.set(key, record);
@@ -2188,6 +2234,15 @@
       }
 
       return found;
+    }
+
+    /** Drop leading articles and conjunctions, but never everything. */
+    static stripLeadingStopwords(phrase) {
+      const words = phrase.split(/\s+/);
+      while (words.length > 1 && STOPWORDS.has(foldKey(words[0]))) {
+        words.shift();
+      }
+      return words.join(' ');
     }
 
     isPlausible(phrase) {
@@ -2564,10 +2619,71 @@
    * may style a bare element selector: this stylesheet is a guest in someone
    * else's document and a rule on `p` or `button` would leak into the chapter.
    */
-  function buildStyleSheet(palette) {
+  /**
+   * The declarations a marked name is painted with.
+   *
+   * Split out because the same rules have to serve both the painted path and
+   * the wrapping fallback, and because only a subset of CSS applies inside
+   * ::highlight() — anything that would move text is ignored there. That is why
+   * weight is faked with a tight text-shadow rather than set with font-weight,
+   * which the browser silently drops. The shadow also avoids reflowing the
+   * paragraph, which real bold would do on the wrapping path.
+   */
+  function buildMarkRules(palette, settings) {
+    const choice = settings ? settings.get('highlightColor') : 'violet';
+    const entry = MARK_COLORS[choice];
+    const color = choice === 'theme' || !entry
+      ? palette.accent
+      : (palette.isDark ? entry.dark : entry.light);
+
+    const solid = toCss(color);
+    const wash = toCss(color, palette.isDark ? 0.26 : 0.17);
+    const washFaint = toCss(color, palette.isDark ? 0.13 : 0.08);
+    const fauxBold = 'text-shadow:0 0 .5px ' + solid + ',0 0 .5px ' + solid + ';';
+    const style = (settings && settings.get('highlightStyle')) || 'marker';
+
+    if (style === 'underline') {
+      return {
+        confirmed:
+          'color:' + solid + ';text-decoration:underline;text-decoration-color:' +
+          toCss(color, 0.7) + ';text-decoration-thickness:2px;text-underline-offset:3px;',
+        guessed:
+          'color:' + toCss(color, 0.75) + ';text-decoration:underline dotted;' +
+          'text-decoration-color:' + toCss(color, 0.45) + ';text-underline-offset:3px;',
+        pressed: wash,
+      };
+    }
+
+    if (style === 'bold') {
+      return {
+        confirmed: 'color:' + solid + ';' + fauxBold,
+        guessed: 'color:' + toCss(color, 0.72) + ';',
+        pressed: wash,
+      };
+    }
+
+    /* 'marker' — a wash behind the word, the way a highlighter pen reads.
+     * No solid underline anywhere, so it cannot be mistaken for a link.
+     *
+     * A guess gets a dotted underline rather than just a fainter wash. A wash
+     * alone at low enough opacity to read as "unsure" is too faint to notice at
+     * all on a phone, which makes the marking pointless — dotted reads as
+     * tentative while staying visible, and dotted-and-violet is nobody's idea
+     * of a hyperlink. */
+    return {
+      confirmed: 'color:' + solid + ';background-color:' + wash + ';' + fauxBold,
+      guessed:
+        'color:' + toCss(color, 0.92) + ';background-color:' + washFaint + ';' +
+        'text-decoration:underline dotted;text-decoration-color:' + toCss(color, 0.6) +
+        ';text-underline-offset:3px;',
+      pressed: toCss(color, palette.isDark ? 0.42 : 0.3),
+    };
+  }
+
+  function buildStyleSheet(palette, settings) {
+    const mark = buildMarkRules(palette, settings);
     const accent = toCss(palette.accent);
     const accentSoft = toCss(palette.accent, 0.16);
-    const accentFaint = toCss(palette.accent, 0.1);
     const surface = toCss(palette.surface);
     const surfaceRaised = toCss(palette.surfaceRaised);
     const text = toCss(palette.foreground);
@@ -2578,32 +2694,16 @@
     return [
       /* ---- how a known name looks in the prose ---- */
 
-      '::highlight(' + HIGHLIGHT_NAME + '){',
-      'background-color:' + accentSoft + ';',
-      'text-decoration:underline;',
-      'text-decoration-color:' + toCss(palette.accent, 0.55) + ';',
-      'text-decoration-thickness:1px;',
-      'text-underline-offset:2px;}',
+      '::highlight(' + HIGHLIGHT_NAME + '){' + mark.confirmed + '}',
+      '::highlight(' + HIGHLIGHT_NAME + '-guess){' + mark.guessed + '}',
 
-      '::highlight(' + HIGHLIGHT_NAME + '-guess){',
-      'background-color:' + accentFaint + ';',
-      'text-decoration:underline dotted;',
-      'text-decoration-color:' + toCss(palette.foreground, 0.35) + ';',
-      'text-underline-offset:2px;}',
-
-      /* The wrapping fallback has to look identical to the painted version. */
-      '.' + MARK_CLASS + '{',
-      'background-color:' + accentSoft + ';',
-      'text-decoration:underline;',
-      'text-decoration-color:' + toCss(palette.accent, 0.55) + ';',
-      'text-underline-offset:2px;',
-      'cursor:pointer;border-radius:2px;',
+      /* The wrapping fallback must look the same as the painted version, so it
+       * uses the same declarations plus the few a real element can carry. */
+      '.' + MARK_CLASS + '{' + mark.confirmed +
+      'cursor:pointer;border-radius:3px;padding:0 1px;margin:0 -1px;',
       '-webkit-tap-highlight-color:transparent;}',
-      '.' + MARK_CLASS + '--guess{',
-      'background-color:' + accentFaint + ';',
-      'text-decoration-style:dotted;',
-      'text-decoration-color:' + toCss(palette.foreground, 0.35) + ';}',
-      '.' + MARK_CLASS + ':active{background-color:' + toCss(palette.accent, 0.3) + ';}',
+      '.' + MARK_CLASS + '--guess{' + mark.guessed + '}',
+      '.' + MARK_CLASS + ':active{background-color:' + mark.pressed + ';}',
 
       /* ---- shared shell ---- */
 
@@ -2721,17 +2821,37 @@
       'background:transparent;color:' + text + ';}',
       '.lorelens-choice-sub{display:block;margin-top:3px;font-size:12px;color:' + muted + ';}',
 
-      /* ---- floating button ---- */
+      /* ---- floating buttons ---- */
 
-      '.lorelens-fab{position:fixed;z-index:2147482999;right:14px;',
+      '.lorelens-fabs{position:fixed;z-index:2147482999;right:14px;',
       'bottom:calc(16px + env(safe-area-inset-bottom,0px));',
-      'width:38px;height:38px;border-radius:50%;cursor:pointer;',
+      'display:flex;flex-direction:column;gap:8px;}',
+      '.lorelens-fab{',
+      'width:38px;height:38px;border-radius:50%;cursor:pointer;padding:0;',
       'display:flex;align-items:center;justify-content:center;',
       'font-size:15px;font-weight:700;letter-spacing:-.02em;',
       'border:1px solid ' + outline + ';background:' + surface + ';color:' + accent + ';',
       'box-shadow:0 3px 12px rgba(0,0,0,.22);opacity:.5;transition:opacity .2s ease;}',
       '.lorelens-fab:active{opacity:1;}',
-      '.lorelens-fab.is-busy{opacity:.9;}',
+
+      /* ---- the power-system ladder ---- */
+
+      '.lorelens-ladder{list-style:none;margin:14px 0 0;padding:0;',
+      'counter-reset:lorelens-rung;}',
+      '.lorelens-rung{display:flex;align-items:baseline;gap:10px;',
+      'padding:7px 9px;border-radius:8px;font-size:14.5px;}',
+      '.lorelens-rung+.lorelens-rung{margin-top:2px;}',
+      '.lorelens-rung-n{flex:none;min-width:1.4em;font-size:11.5px;font-weight:700;',
+      'font-variant-numeric:tabular-nums;color:' + muted + ';}',
+      '.lorelens-rung-name{flex:1;min-width:0;}',
+      '.lorelens-rung-tag{flex:none;font-size:10.5px;font-weight:700;',
+      'letter-spacing:.04em;text-transform:uppercase;padding:2px 7px;border-radius:99px;',
+      'background:' + accentSoft + ';color:' + accent + ';}',
+      /* The rung the chapter is actually talking about, so the ladder answers
+       * "where am I" as well as "what is the order". */
+      '.lorelens-rung.is-here{background:' + toCss(palette.accent, 0.09) + ';',
+      'box-shadow:inset 2px 0 0 ' + accent + ';}',
+      '.lorelens-rung.is-here .lorelens-rung-name{font-weight:650;}',
 
       /* ---- selection lookup bubble ---- */
 
@@ -2770,14 +2890,14 @@
   }
 
   /** Install or replace the stylesheet. Called again whenever the theme moves. */
-  function applyStyleSheet(palette) {
+  function applyStyleSheet(palette, settings) {
     let style = document.getElementById('lorelens-styles');
     if (!style) {
       style = document.createElement('style');
       style.id = 'lorelens-styles';
       (document.head || document.documentElement).appendChild(style);
     }
-    style.textContent = buildStyleSheet(palette);
+    style.textContent = buildStyleSheet(palette, settings);
   }
 
 /* ── src/82-panel.js ─────────────────────────────────────────────────── */
@@ -3207,6 +3327,26 @@
         '</select></div>' +
 
         '<div class="lorelens-field">' +
+        '<label class="lorelens-label" for="lorelens-hlstyle">Marked names look like</label>' +
+        '<select class="lorelens-select" id="lorelens-hlstyle">' +
+        SettingsView.option('marker', 'Highlighter marker', settings.get('highlightStyle')) +
+        SettingsView.option('bold', 'Coloured and bold', settings.get('highlightStyle')) +
+        SettingsView.option('underline', 'Underlined', settings.get('highlightStyle')) +
+        '</select>' +
+        '<p class="lorelens-help">A marked name is not a link and should not look like one — ' +
+        'your reader\'s own footnote links are the blue underlined text.</p></div>' +
+
+        '<div class="lorelens-field">' +
+        '<label class="lorelens-label" for="lorelens-hlcolor">Marker colour</label>' +
+        '<select class="lorelens-select" id="lorelens-hlcolor">' +
+        SettingsView.option('violet', 'Violet', settings.get('highlightColor')) +
+        SettingsView.option('amber', 'Amber', settings.get('highlightColor')) +
+        SettingsView.option('teal', 'Teal', settings.get('highlightColor')) +
+        SettingsView.option('rose', 'Rose', settings.get('highlightColor')) +
+        SettingsView.option('theme', "Match my reader's theme", settings.get('highlightColor')) +
+        '</select></div>' +
+
+        '<div class="lorelens-field">' +
         SettingsView.toggle('firstMentionOnly', 'First mention only',
           'Mark a name once per paragraph instead of every time.', settings) +
         SettingsView.toggle('selectionLookup', 'Look up selected text',
@@ -3215,7 +3355,9 @@
           'Quietly fetch the most common names so taps open instantly.', settings) +
         SettingsView.toggle('liveLookup', 'Use the wiki',
           'Turn off to stop all network requests.', settings) +
-        SettingsView.toggle('showButton', 'Show the round button', '', settings) +
+        SettingsView.toggle('showRealmsButton', 'Show the ladder button',
+          'The button that lists this world\'s cultivation levels.', settings) +
+        SettingsView.toggle('showButton', 'Show the settings button', '', settings) +
         SettingsView.toggle('enabled', 'LoreLens is on', '', settings) +
         '</div>' +
 
@@ -3336,6 +3478,22 @@
         detectionSelect.addEventListener('change', guard('settings.detection', function () {
           self.settings.set('detection', detectionSelect.value);
           self.onApply('detection');
+        }));
+      }
+
+      const styleSelect = root.querySelector('#lorelens-hlstyle');
+      if (styleSelect) {
+        styleSelect.addEventListener('change', guard('settings.hlstyle', function () {
+          self.settings.set('highlightStyle', styleSelect.value);
+          self.onApply('highlightStyle');
+        }));
+      }
+
+      const colorSelect = root.querySelector('#lorelens-hlcolor');
+      if (colorSelect) {
+        colorSelect.addEventListener('change', guard('settings.hlcolor', function () {
+          self.settings.set('highlightColor', colorSelect.value);
+          self.onApply('highlightColor');
         }));
       }
     }
@@ -3515,6 +3673,378 @@
     }
   }
 
+/* ── src/88-realms.js ────────────────────────────────────────────────── */
+
+  /* --------------------------------------------------- the power system --- */
+
+  /**
+   * "What are the cultivation levels in this world, again?"
+   *
+   * Every progression-fantasy novel has a ladder — Qi Refining, Foundation
+   * Establishment, Core Formation, and eighty chapters later you have lost
+   * track of whether Nascent Soul is above or below Golden Core. The wiki
+   * always has a page for it, and going to look is exactly the trip that gets
+   * people spoiled.
+   *
+   * So it lives behind a button in the chapter. One tap, the ladder, done.
+   *
+   * Wikis do not agree on what to call this page or how to lay it out, so this
+   * tries the names that convention produces and then reads the ordering out of
+   * whichever structure the page actually uses.
+   */
+  const POWER_PAGE_TITLES = [
+    'Cultivation',
+    'Cultivation Realms',
+    'Cultivation Levels',
+    'Cultivation Stages',
+    'Cultivation System',
+    'Realms',
+    'Power System',
+    'Ranks',
+    'Rank',
+    'Levels',
+    'Classes',
+    'Grades',
+    'Power Levels',
+    'Magic System',
+  ];
+
+  /** Headings and list items that are page furniture rather than a rank. */
+  const NOT_A_RANK =
+    /^(references?|gallery|trivia|see also|notes?|navigation|contents?|external links?|sources?|categories|appearances?|images?|videos?|quotes?)$/i;
+
+  class RealmsGuide {
+    constructor(options) {
+      this.wiki = options.wiki;
+      this.store = options.store;
+      this.settings = options.settings;
+      this.panel = options.panel;
+      this.getChapterText = options.getChapterText;
+      this.ladder = null;
+      this.isLoading = false;
+    }
+
+    get cacheKey() {
+      return 'realms:' + this.wiki.subdomain;
+    }
+
+    /** Open the panel, from cache if we have it. */
+    show() {
+      if (!this.wiki.subdomain) {
+        this.panel.showMessage(
+          'Power system',
+          'LoreLens has not found a wiki for this novel yet, so there is nowhere to read the ' +
+            'cultivation levels from. You can set the wiki in settings.',
+          [{ action: 'settings', label: 'Choose a wiki' }, { action: 'close', label: 'Close' }],
+        );
+        return Promise.resolve();
+      }
+
+      const cached = this.store.read(this.cacheKey);
+      if (cached) {
+        this.ladder = cached;
+        this.render(cached);
+        return Promise.resolve();
+      }
+
+      if (!this.settings.get('liveLookup')) {
+        this.panel.showMessage(
+          'Power system',
+          'Wiki lookups are switched off, and nothing is stored for this novel yet.',
+          [{ action: 'settings', label: 'Settings' }, { action: 'close', label: 'Close' }],
+        );
+        return Promise.resolve();
+      }
+
+      const self = this;
+      this.panel.showLoading('Power system');
+
+      return this.load().then(function (ladder) {
+        if (!ladder) {
+          self.panel.showMessage(
+            'Power system',
+            'No page on ' + self.wiki.subdomain + '.fandom.com looks like a cultivation or ' +
+              'ranking system. Not every novel has one, and some wikis file it under a name ' +
+              'nobody would guess.',
+            [
+              { action: 'search-realms', label: 'Search the wiki' },
+              { action: 'close', label: 'Close' },
+            ],
+          );
+          return;
+        }
+        self.store.write(self.cacheKey, ladder, ENTRY_TTL_DAYS);
+        self.ladder = ladder;
+        self.render(ladder);
+      });
+    }
+
+    /** Find the page, fetch it, read the ladder out of it. */
+    load() {
+      if (this.isLoading) return Promise.resolve(null);
+      this.isLoading = true;
+      const self = this;
+
+      return this.findPage()
+        .then(function (title) {
+          if (!title) return null;
+          return self.wiki.fetchRenderedArticle(title).then(function (html) {
+            if (!html) return null;
+            const steps = RealmsGuide.parseLadder(html);
+            if (steps.length < 3) return null;
+            return {
+              title: title,
+              url: self.wiki.articleUrl(title),
+              intro: RealmsGuide.parseIntro(html),
+              steps: steps,
+            };
+          });
+        })
+        .then(function (ladder) {
+          self.isLoading = false;
+          return ladder;
+        })
+        .catch(function () {
+          self.isLoading = false;
+          return null;
+        });
+    }
+
+    /**
+     * Which of the candidate titles exists? One batched query answers for all
+     * of them, rather than a request each.
+     */
+    findPage() {
+      const self = this;
+      return this.wiki
+        .request({ action: 'query', prop: 'info', redirects: '1', titles: POWER_PAGE_TITLES.join('|') })
+        .then(function (payload) {
+          const pages = (payload && payload.query && payload.query.pages) || [];
+          const list = Array.isArray(pages)
+            ? pages
+            : Object.keys(pages).map(function (key) { return pages[key]; });
+
+          const existing = {};
+          for (const page of list) {
+            if (page && !page.missing && page.title) existing[foldKey(page.title)] = page.title;
+          }
+          /* Candidate order is preference order, so walk it rather than the
+           * order the API happened to answer in. */
+          for (const candidate of POWER_PAGE_TITLES) {
+            const hit = existing[foldKey(candidate)];
+            if (hit) return hit;
+          }
+          return null;
+        })
+        .then(function (title) {
+          if (title) return title;
+          /* Nothing obvious — ask the wiki's own search. */
+          return self.wiki.searchTitle('cultivation realms ranks power system').then(function (results) {
+            if (!results || results.length === 0) return null;
+            return results[0].title;
+          });
+        });
+    }
+
+    /* ----------------------------------------------------------- parsing -- */
+
+    static parseDocument(html) {
+      if (typeof window.DOMParser !== 'function') return null;
+      try {
+        return new window.DOMParser().parseFromString(html, 'text/html');
+      } catch (error) {
+        return null;
+      }
+    }
+
+    static parseIntro(html) {
+      const parsed = RealmsGuide.parseDocument(html);
+      if (!parsed) return '';
+      const body = parsed.querySelector('.mw-parser-output') || parsed.body;
+      if (!body) return '';
+      const paragraphs = body.querySelectorAll('p');
+      for (const paragraph of Array.prototype.slice.call(paragraphs)) {
+        const text = stripWikiHtml(paragraph.innerHTML || '');
+        if (text.length > 40) return splitSentences(text).slice(0, 2).join(' ');
+      }
+      return '';
+    }
+
+    /**
+     * Read the rungs out of whatever shape the page uses. Wikis lay this out as
+     * a numbered list, a run of headings, a bulleted list or a table, roughly in
+     * that order of how often each occurs, so each is tried in turn and the
+     * first that yields a plausible ladder wins.
+     */
+    static parseLadder(html) {
+      const parsed = RealmsGuide.parseDocument(html);
+      if (!parsed) return [];
+      const body = parsed.querySelector('.mw-parser-output') || parsed.body;
+      if (!body) return [];
+
+      for (const element of Array.prototype.slice.call(
+        body.querySelectorAll('.navbox, .toc, .reference, sup, style, script, .mw-editsection'),
+      )) {
+        if (element.parentNode) element.parentNode.removeChild(element);
+      }
+
+      const strategies = [
+        RealmsGuide.fromOrderedList,
+        RealmsGuide.fromHeadings,
+        RealmsGuide.fromTable,
+        RealmsGuide.fromBulletList,
+      ];
+
+      for (const strategy of strategies) {
+        try {
+          const steps = RealmsGuide.clean(strategy(body));
+          if (steps.length >= 3) return steps;
+        } catch (error) {
+          /* ":scope" and friends are not universally available. Try the next
+           * shape rather than giving up on the page entirely. */
+        }
+      }
+      return [];
+    }
+
+    static fromOrderedList(body) {
+      const lists = body.querySelectorAll('ol');
+      for (const list of Array.prototype.slice.call(lists)) {
+        const items = list.querySelectorAll(':scope > li');
+        if (items.length >= 3) return RealmsGuide.textsOf(items);
+      }
+      return [];
+    }
+
+    static fromHeadings(body) {
+      const headings = body.querySelectorAll('h2, h3');
+      return RealmsGuide.textsOf(headings);
+    }
+
+    static fromBulletList(body) {
+      const lists = body.querySelectorAll('ul');
+      for (const list of Array.prototype.slice.call(lists)) {
+        const items = list.querySelectorAll(':scope > li');
+        if (items.length >= 3) return RealmsGuide.textsOf(items);
+      }
+      return [];
+    }
+
+    static fromTable(body) {
+      const table = body.querySelector('table');
+      if (!table) return [];
+      const rows = table.querySelectorAll('tr');
+      const out = [];
+      for (const row of Array.prototype.slice.call(rows)) {
+        const cell = row.querySelector('td, th');
+        if (!cell) continue;
+        out.push((cell.textContent || '').replace(/\s+/g, ' ').trim());
+      }
+      return out;
+    }
+
+    static textsOf(nodes) {
+      const out = [];
+      for (const node of Array.prototype.slice.call(nodes)) {
+        /* Only the rung's own name, not the paragraph of description that
+         * often follows it inside the same list item. */
+        const raw = (node.textContent || '').replace(/\s+/g, ' ').trim();
+        const name = raw.split(/[:–—-]\s|\.\s/)[0].trim();
+        out.push(name);
+      }
+      return out;
+    }
+
+    static clean(names) {
+      const seen = new Set();
+      const out = [];
+      for (const name of names) {
+        const trimmed = String(name || '').replace(/\[\d+\]/g, '').trim();
+        if (trimmed.length < 2 || trimmed.length > 48) continue;
+        if (NOT_A_RANK.test(trimmed)) continue;
+        if (/^\d+$/.test(trimmed)) continue;
+        const key = foldKey(trimmed);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push(trimmed);
+        if (out.length >= 40) break;
+      }
+      return out;
+    }
+
+    /* --------------------------------------------------------- rendering -- */
+
+    /**
+     * A ladder gives away how far the world's power scale goes, which is a
+     * mild spoiler in itself. It is behind a button the reader chose to press,
+     * so it is shown — but in the strongest spoiler mode the top of the ladder
+     * is folded away, since that is the part that says how the story ends.
+     */
+    render(ladder) {
+      const chapterText = foldKey(this.getChapterText ? this.getChapterText() : '');
+      const isStrict = this.settings.get('spoilerGuard') === 'strong';
+      const foldFrom = isStrict ? Math.ceil(ladder.steps.length * 0.6) : ladder.steps.length;
+
+      const rows = ladder.steps
+        .map(function (step, position) {
+          if (position >= foldFrom) return '';
+          const isHere = chapterText.indexOf(foldKey(step)) >= 0;
+          return (
+            '<li class="lorelens-rung' + (isHere ? ' is-here' : '') + '">' +
+            '<span class="lorelens-rung-n">' + String(position + 1) + '</span>' +
+            '<span class="lorelens-rung-name">' + escapeHtml(step) + '</span>' +
+            (isHere ? '<span class="lorelens-rung-tag">in this chapter</span>' : '') +
+            '</li>'
+          );
+        })
+        .join('');
+
+      const foldedCount = ladder.steps.length - foldFrom;
+
+      this.panel.setContent(
+        '<div class="lorelens-head"><div class="lorelens-titles">' +
+          '<h2 class="lorelens-name">' + escapeHtml(ladder.title) + '</h2>' +
+          '<p class="lorelens-native">' + escapeHtml(String(ladder.steps.length)) + ' levels</p>' +
+          '</div></div>' +
+          (ladder.intro
+            ? '<div class="lorelens-section"><p class="lorelens-text">' +
+              escapeHtml(ladder.intro) + '</p></div>'
+            : '') +
+          '<ol class="lorelens-ladder">' + rows + '</ol>' +
+          (foldedCount > 0
+            ? '<div class="lorelens-hidden" role="button" tabindex="0" ' +
+              'data-lorelens-action="reveal-ladder">' +
+              '<span class="lorelens-hidden-label">' + String(foldedCount) +
+              ' more levels above this</span>' +
+              '<span class="lorelens-hidden-hint">Tap to show</span></div>'
+            : '') +
+          Panel.footer([
+            ladder.url ? { action: 'open-wiki', label: 'Full page', href: ladder.url } : null,
+            { action: 'spacer' },
+            { action: 'refresh-realms', label: 'Refresh' },
+            { action: 'close', label: 'Close' },
+          ]),
+      );
+      this.panel.open();
+    }
+
+    /** Re-render with nothing folded away. */
+    revealAll() {
+      if (!this.ladder) return;
+      const previous = this.settings.values.spoilerGuard;
+      this.settings.values.spoilerGuard = 'off';
+      this.render(this.ladder);
+      this.settings.values.spoilerGuard = previous;
+    }
+
+    /** Drop the cached ladder and fetch it again — for when a wiki updates. */
+    refresh() {
+      this.store.remove(this.cacheKey);
+      this.ladder = null;
+      return this.show();
+    }
+  }
+
 /* ── src/90-app.js ───────────────────────────────────────────────────── */
 
   /* ------------------------------------------------------------------- app */
@@ -3532,7 +4062,10 @@
       this.panel = null;
       this.settingsView = null;
       this.selection = null;
+      this.realms = null;
+      this.fabs = null;
       this.fab = null;
+      this.realmsFab = null;
       this.currentEntity = null;
       this.currentTerm = '';
       this.observer = null;
@@ -3550,7 +4083,7 @@
       this.settings.useNovel(this.context.novelKey);
       this.settings.advanceProgress(this.context.chapterNumber);
 
-      applyStyleSheet(this.context.palette);
+      applyStyleSheet(this.context.palette, this.settings);
 
       this.highlighter = new Highlighter(this.index, this.settings);
       this.panel = new Panel({
@@ -3575,6 +4108,17 @@
         onLookup: guardAsync('app.selectionLookup', function (term) {
           return self.lookup(term);
         }),
+      });
+
+      this.realms = new RealmsGuide({
+        wiki: this.wiki,
+        store: this.store,
+        settings: this.settings,
+        panel: this.panel,
+        getChapterText: function () {
+          const root = self.context.root;
+          return (root && (root.innerText || root.textContent)) || '';
+        },
       });
 
       this.bindTaps();
@@ -4033,6 +4577,26 @@
         this.settings.values.spoilerGuard = previous;
         return;
       }
+      if (action === 'realms') {
+        this.realms.show();
+        return;
+      }
+      if (action === 'reveal-ladder') {
+        this.realms.revealAll();
+        return;
+      }
+      if (action === 'refresh-realms') {
+        this.realms.refresh();
+        return;
+      }
+      if (action === 'search-realms') {
+        window.open(
+          this.wiki.host() + '/wiki/Special:Search?query=' + encodeURIComponent('cultivation realms'),
+          '_blank',
+          'noopener',
+        );
+        return;
+      }
       if (action === 'search-web') {
         const url =
           this.wiki.host() + '/wiki/Special:Search?query=' + encodeURIComponent(this.currentTerm);
@@ -4111,7 +4675,13 @@
         });
         return;
       }
-      if (key === 'showButton') {
+      if (key === 'highlightStyle' || key === 'highlightColor') {
+        /* Only the stylesheet changes — the ranges are already registered, so
+         * the marks repaint without walking the chapter again. */
+        applyStyleSheet(this.context.palette, this.settings);
+        return;
+      }
+      if (key === 'showButton' || key === 'showRealmsButton') {
         this.updateFabVisibility();
       }
     }
@@ -4120,23 +4690,52 @@
 
     buildFab() {
       const self = this;
-      this.fab = document.createElement('button');
-      this.fab.className = 'lorelens-ui lorelens-fab';
-      this.fab.setAttribute('type', 'button');
-      this.fab.setAttribute('aria-label', 'LoreLens settings');
-      this.fab.textContent = 'L';
-      this.fab.addEventListener('click', guard('app.fab', function (event) {
-        event.preventDefault();
-        event.stopPropagation();
+
+      this.fabs = document.createElement('div');
+      this.fabs.className = 'lorelens-ui lorelens-fabs';
+
+      const makeButton = function (label, description, onTap) {
+        const button = document.createElement('button');
+        button.className = 'lorelens-fab';
+        button.setAttribute('type', 'button');
+        button.setAttribute('aria-label', description);
+        button.setAttribute('title', description);
+        button.textContent = label;
+        button.addEventListener('click', guard('app.fab', function (event) {
+          event.preventDefault();
+          event.stopPropagation();
+          onTap();
+        }));
+        return button;
+      };
+
+      /* The ladder sits above the settings button: it is the one people reach
+       * for mid-chapter, and the thumb gets there first. */
+      this.realmsFab = makeButton('☰', 'Cultivation levels in this world', function () {
+        self.realms.show();
+      });
+      this.fab = makeButton('L', 'LoreLens settings', function () {
         self.settingsView.render();
-      }));
-      (document.body || document.documentElement).appendChild(this.fab);
+      });
+
+      this.fabs.appendChild(this.realmsFab);
+      this.fabs.appendChild(this.fab);
+      (document.body || document.documentElement).appendChild(this.fabs);
       this.updateFabVisibility();
     }
 
     updateFabVisibility() {
-      if (!this.fab) return;
-      this.fab.style.display = this.settings.get('showButton') ? 'flex' : 'none';
+      if (this.fab) {
+        this.fab.style.display = this.settings.get('showButton') ? 'flex' : 'none';
+      }
+      if (this.realmsFab) {
+        this.realmsFab.style.display = this.settings.get('showRealmsButton') ? 'flex' : 'none';
+      }
+      if (this.fabs) {
+        const anyVisible =
+          this.settings.get('showButton') || this.settings.get('showRealmsButton');
+        this.fabs.style.display = anyVisible ? 'flex' : 'none';
+      }
     }
 
     /* ------------------------------------------------------------ watching */
@@ -4183,7 +4782,7 @@
       const refresh = debounce(guard('app.theme', function () {
         const palette = self.context.buildPalette();
         self.context.palette = palette;
-        applyStyleSheet(palette);
+        applyStyleSheet(palette, self.settings);
       }), 500);
 
       if (window.matchMedia) {
@@ -4244,6 +4843,11 @@
         app.settingsView.render();
       }),
 
+      /** Open this world's cultivation / rank ladder. */
+      realms: guard('api.realms', function () {
+        return app.realms.show();
+      }),
+
       /** Everything we know about this environment, as text. */
       diagnostics: guard('api.diagnostics', function () {
         return app.settingsView.buildDiagnostics(app.highlighter);
@@ -4267,6 +4871,7 @@
         Settings: Settings,
         Store: Store,
         Panel: Panel,
+        RealmsGuide: RealmsGuide,
         buildEntity: buildEntity,
         parseInfobox: parseInfobox,
         stripWikiHtml: stripWikiHtml,

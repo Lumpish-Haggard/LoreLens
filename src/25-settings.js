@@ -23,6 +23,17 @@
     firstMentionOnly: true,
 
     /**
+     * How a marked name is painted.
+     *   'marker' — a coloured wash behind the word, like a highlighter pen
+     *   'bold'   — coloured and thickened, no background
+     *   'underline' — a coloured underline, for people who prefer it quiet
+     */
+    highlightStyle: 'marker',
+
+    /** Which colour to mark in: violet, amber, teal, rose, or the reader's own accent. */
+    highlightColor: 'violet',
+
+    /**
      * How much of a wiki entry to hide.
      *   'chapter' — hide anything the wiki ties to a chapter past where you are
      *   'strong'  — the above, plus fate tags and anything that reads final
@@ -44,6 +55,9 @@
 
     /** Show a floating button to open settings. Off leaves only the long-press path. */
     showButton: true,
+
+    /** Show the button that opens this world's cultivation / rank ladder. */
+    showRealmsButton: true,
 
     /** Select any text and get a "Look up" button, even on names we did not highlight. */
     selectionLookup: true,

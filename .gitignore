@@ -21,3 +21,6 @@ tests/.out/
 .DS_Store
 Thumbs.db
 desktop.ini
+
+# Throwaway preview pages used while eyeballing a visual change
+tests/.*.html
