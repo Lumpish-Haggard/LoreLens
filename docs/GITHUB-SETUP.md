@@ -83,30 +83,51 @@ straight to the main branch.
 
 **Settings → Rules → Rulesets → New branch ruleset**
 
-- **Name:** `protect main`
+Do this in two stages. A ruleset applies to **you** as well unless you add a
+bypass, so turning everything on while you are the only person working on the
+repository mostly locks you out of it.
+
+### Stage 1 — straight away
+
+- **Ruleset Name:** `protect main`
 - **Enforcement status:** Active
+- **Bypass list:** leave empty
 - **Target branches:** Add target → Include default branch
-- Then tick:
+- Tick **only**:
   - **Restrict deletions**
-  - **Require a pull request before merging**
-    - Required approvals: `1` — but see the note below
-  - **Require status checks to pass**
-    - Add checks: `dist is in sync with src`, `Test suite (headless Chrome)`,
-      `Source constraints`
-    - Tick **Require branches to be up to date before merging**
   - **Block force pushes**
 
-**The note about required approvals:** while you are the only maintainer, one
-required approval means *you cannot merge your own pull requests*, because you
-cannot approve your own. Two reasonable options:
+Create it. Ordinary `git push` still works, but `main` can no longer be deleted
+or force-pushed over — the two mistakes there is no undo for. Nothing else is
+worth turning on yet.
 
-- Set required approvals to `0` for now. You still get the CI checks, which is
-  the part that actually catches problems. Raise it to `1` when a second
-  maintainer appears.
-- Or leave it at `1` and add yourself to the ruleset's **bypass list**
-  (Bypass list → Add → your account). You keep the rule for everyone else.
+Leave **Require signed commits** alone unless you have GPG set up, and
+**Require linear history** alone unless you understand what it rejects.
 
-Either is fine. The status checks matter far more than the approval count.
+### Stage 2 — when someone else starts contributing
+
+Edit the same ruleset and add:
+
+- **Require a pull request before merging**
+  - **Required approvals: `0`.** Zero, not one — you cannot approve your own
+    pull request, so requiring one approval while you are the only maintainer
+    means you can never merge anything. Raise it when a second maintainer
+    exists, or add yourself to the bypass list and keep the rule for everyone
+    else.
+- **Require status checks to pass**, adding exactly:
+  - `dist is in sync with src`
+  - `Test suite (headless Chrome)`
+  - `Source constraints`
+  - and tick **Require branches to be up to date before merging**
+
+Those names come from the `name:` of each job in `.github/workflows/ci.yml`. A
+check only appears in the picker once it has reported at least once, so if the
+search box is empty, look at the **Actions** tab to confirm CI has run — and
+type the name in by hand, which the field accepts.
+
+The status checks are the part that does real work. `dist is in sync with src`
+rebuilds the file from `src/` and fails the pull request if the two differ,
+which is the single most common thing contributors get wrong.
 
 ### Turning on Discussions
 
