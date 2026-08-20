@@ -284,6 +284,15 @@
 
       '.lorelens-meta{margin:16px 0 0;font-size:11.5px;color:' + muted + ';',
       'text-align:center;line-height:1.6;}',
+
+      /* Diagnostics are read off the screen or photographed, so they have to be
+       * legible and selectable rather than merely present. */
+      '.lorelens-diagnostics{margin:12px 0 0;padding:12px;border-radius:10px;',
+      'font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;',
+      'line-height:1.5;white-space:pre-wrap;word-break:break-word;',
+      'background:' + surfaceRaised + ';color:' + text + ';',
+      'border:1px solid ' + outline + ';',
+      '-webkit-user-select:text;user-select:text;}',
     ].join('');
   }
 

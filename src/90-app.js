@@ -22,6 +22,7 @@
       this.currentTerm = '';
       this.observer = null;
       this.isScanning = false;
+      this.pendingRescan = false;
       this.scanStartedAt = 0;
     }
 
@@ -35,6 +36,7 @@
 
       this.settings.useNovel(this.context.novelKey);
       this.settings.advanceProgress(this.context.chapterNumber);
+      this.recordBoot();
 
       applyStyleSheet(this.context.palette, this.settings);
 
@@ -86,8 +88,29 @@
         return;
       }
 
-      const startScan = guard('app.afterSources', this.scan.bind(this));
-      Promise.all([this.resolveWiki(), this.loadLorepack()]).then(startScan);
+      /*
+       * Mark the chapter FIRST, and only then go looking for the wiki.
+       *
+       * These used to be the other way round: highlighting waited on
+       * Promise.all([resolveWiki(), loadLorepack()]). Finding names needs
+       * nothing but the text on the page, while finding the wiki means probing
+       * several candidate subdomains one after another, each of which can take
+       * the full request timeout before it fails. On a novel whose title
+       * matches no wiki — a fan work, say — that is a minute or more of a
+       * chapter with no marks in it, repeated on every chapter. It reads
+       * exactly like the tool being broken, and there is no reason for it:
+       * nothing about detecting a name depends on the network.
+       */
+      this.scan();
+
+      const self2 = this;
+      Promise.all([this.resolveWiki(), this.loadLorepack()]).then(
+        guard('app.afterSources', function () {
+          /* Now that we know the wiki, re-run so anything already cached is
+           * promoted from a guess to a confirmed name, and prefetch can start. */
+          self2.scan();
+        }),
+      );
     }
 
     /**
@@ -250,6 +273,23 @@
     }
 
     /**
+     * Count how many times LoreLens has started, and remember it.
+     *
+     * This is a direct test of the one question that has been guessed at
+     * repeatedly instead of measured: does anything written in one chapter
+     * survive into the next? Every chapter is a fresh document here, so the
+     * counter should climb. If it reads 1 forever, nothing is persisting and
+     * every symptom that looks like "it forgot my settings" follows from that.
+     * Cheaper to answer than to infer.
+     */
+    recordBoot() {
+      const previous = this.store.read('boot-count') || 0;
+      this.bootCount = previous + 1;
+      this.store.write('boot-count', this.bootCount, 0);
+      log('boot #' + this.bootCount + ' (was ' + previous + ')');
+    }
+
+    /**
      * Check periodically that the marks are still there, and redraw if not.
      *
      * A belt-and-braces measure, and worth the cost. The ways a reader can
@@ -276,10 +316,17 @@
     scan() {
       /* A scan that somehow never finished must not wedge the tool forever. */
       if (this.isScanning) {
-        if (Date.now() - this.scanStartedAt < 10000) return;
+        if (Date.now() - this.scanStartedAt < 10000) {
+          /* Do not drop the request — the caller wants the marks brought up to
+           * date, and silently ignoring that is how an upgrade pass goes
+           * missing after the wiki finally resolves. */
+          this.pendingRescan = true;
+          return;
+        }
         log('previous scan never finished; starting a new one');
       }
       this.isScanning = true;
+      this.pendingRescan = false;
       this.scanStartedAt = Date.now();
 
       const root = this.context.root;
@@ -310,6 +357,13 @@
       const self = this;
       this.highlighter.run(root, function () {
         self.isScanning = false;
+        if (self.pendingRescan) {
+          self.pendingRescan = false;
+          whenIdle(function () {
+            self.scan();
+          });
+          return;
+        }
         self.prefetch(candidates);
       });
     }
@@ -622,38 +676,75 @@
         );
         return;
       }
+      if (action === 'show-diagnostics') {
+        this.showDiagnostics();
+        return;
+      }
       if (action === 'copy-diagnostics') {
         this.copyDiagnostics();
       }
     }
 
+    /**
+     * Show the diagnostics on screen, as selectable text.
+     *
+     * This used to only offer to put them on the clipboard, which on the device
+     * that matters is not merely unreliable but impossible: LNReader loads the
+     * chapter with no origin, a document with no origin is not a secure
+     * context, and `navigator.clipboard` does not exist outside a secure
+     * context. So the button silently did nothing useful and fell back to
+     * printing to a console nobody on a phone can open — which meant that for
+     * every bug report, the one artefact that would have explained it was
+     * unreachable.
+     *
+     * On screen, it can always be read, selected, or photographed.
+     */
+    showDiagnostics() {
+      const text = this.settingsView.buildDiagnostics(this.highlighter);
+
+      this.panel.setContent(
+        '<div class="lorelens-head"><div class="lorelens-titles">' +
+          '<h2 class="lorelens-name">Diagnostics</h2>' +
+          '<p class="lorelens-native">Select it, or take a screenshot</p>' +
+          '</div></div>' +
+          '<pre class="lorelens-diagnostics">' + escapeHtml(text) + '</pre>' +
+          Panel.footer([
+            { action: 'copy-diagnostics', label: 'Try copying' },
+            { action: 'spacer' },
+            { action: 'settings', label: 'Back' },
+            { action: 'close', label: 'Close' },
+          ]),
+      );
+      this.panel.open();
+    }
+
+    /** Best-effort clipboard, for the platforms where it exists. */
     copyDiagnostics() {
       const text = this.settingsView.buildDiagnostics(this.highlighter);
       const self = this;
 
-      const done = function (ok) {
+      const report = function (ok) {
         self.panel.showMessage(
-          ok ? 'Copied' : 'Could not copy',
+          ok ? 'Copied' : 'Cannot copy here',
           ok
-            ? 'Diagnostics are on your clipboard. Paste them into a GitHub issue.'
-            : 'Your reader will not let scripts use the clipboard. The diagnostics are printed to the console instead.',
-          [{ action: 'settings', label: 'Back' }, { action: 'close', label: 'Close' }],
+            ? 'The diagnostics are on your clipboard.'
+            : 'Your reader does not allow clipboard access. Go back and screenshot the text instead.',
+          [{ action: 'show-diagnostics', label: 'Back' }, { action: 'close', label: 'Close' }],
         );
-        if (!ok && window.console) window.console.log(text);
       };
 
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(
-          function () {
-            done(true);
-          },
-          function () {
-            done(false);
-          },
-        );
-      } else {
-        done(false);
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            function () { report(true); },
+            function () { report(false); },
+          );
+          return;
+        }
+      } catch (error) {
+        /* fall through */
       }
+      report(false);
     }
 
     handleSettingChange(key) {
@@ -783,10 +874,15 @@
 
       this.observer = new MutationObserver(function (records) {
         for (const record of records) {
-          /* Ignore the mutations we caused ourselves. */
           const target = record.target;
+          /* Ignore the mutations we caused ourselves. */
           if (target && target.classList && target.classList.contains('lorelens-ui')) continue;
           if (target && target.closest && target.closest('.lorelens-panel')) continue;
+          /* And the ones text-to-speech causes as it walks the chapter — those
+           * are constant while it reads, and repainting on each would mean
+           * fighting the reader for the same nodes several times a minute. */
+          if (target && target.classList && target.classList.contains(TTS_CLASS)) continue;
+          if (target && target.closest && target.closest('.' + TTS_CLASS)) continue;
           repaint();
           return;
         }

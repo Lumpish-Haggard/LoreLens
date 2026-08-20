@@ -84,7 +84,22 @@
     '[contenteditable]',
     '[data-lorelens-skip]',
     '.lorelens-ui',
+    /* LNReader's own furniture, per its custom-JS documentation. None of it is
+     * prose, and marking a name inside the reader's toolbar would be absurd. */
+    '#reader-ui',
+    '#reader-footer-wrapper',
+    '#ToolWrapper',
+    '#ScrollBar',
+    '#TTS-Controller',
+    '.next-button',
   ].join(',');
+
+  /**
+   * The element LNReader gives the paragraph it is currently reading aloud.
+   * Mutations to it are text-to-speech doing its job, not the chapter changing,
+   * and repainting in response would fight the reader for the same nodes.
+   */
+  const TTS_CLASS = 'highlight';
 
   /** The Custom Highlight API registration name, and the DOM-fallback class. */
   const HIGHLIGHT_NAME = 'lorelens-term';
@@ -495,21 +510,25 @@
   /**
    * A last-resort store built on `window.name`.
    *
-   * Some reader WebViews load the chapter with no real origin — a `data:` or
-   * `about:blank` document — and every origin-scoped API, localStorage
-   * included, either throws or silently forgets everything between chapters.
-   * When that happens the tool asks which wiki to use on every single chapter,
-   * which is unusable.
+   * LNReader hands the WebView its chapter as `source={{ html }}` with no
+   * baseUrl, which means the document has no real origin. Every origin-scoped
+   * API is then either unavailable or scoped to a bucket that does not survive
+   * the next document — and since a new chapter is a new document, anything
+   * kept in localStorage can be gone by the time the reader turns the page.
+   * That shows up as being asked which wiki to use over and over.
    *
    * `window.name` is the one string that survives a navigation in the same
-   * window without belonging to an origin. It is a blunt instrument: it is
-   * shared with whatever else is on the page, and it does not survive the
-   * window being destroyed. So it is only ever reached for when the real
-   * options have failed, and it refuses to touch a value that is not ours.
+   * window without belonging to an origin. It is a blunt instrument: shared
+   * with whatever else is on the page, and lost when the window is destroyed.
+   * So it is used alongside the real stores rather than instead of them, and it
+   * refuses to touch a value that is not ours.
    *
    * Declared before Store because a class declaration is not hoisted.
    */
   const WINDOW_NAME_MARKER = 'lorelens1:';
+
+  /** Above this, a value is too big to be worth carrying in window.name. */
+  const WINDOW_NAME_VALUE_LIMIT = 8 * 1024;
 
   class WindowNameBackend {
     read() {
@@ -524,8 +543,6 @@
 
     save(map) {
       const encoded = WINDOW_NAME_MARKER + JSON.stringify(map);
-      /* Very large values here would be carried into every navigation, so this
-       * backend holds settings and little else. */
       if (encoded.length > 96 * 1024) throw new Error('window.name budget exhausted');
       window.name = encoded;
     }
@@ -543,8 +560,10 @@
 
     setItem(key, value) {
       if (!WindowNameBackend.isSafeToUse()) throw new Error('window.name is in use');
+      const text = String(value);
+      if (text.length > WINDOW_NAME_VALUE_LIMIT) throw new Error('value too large for window.name');
       const map = this.read();
-      map[key] = String(value);
+      map[key] = text;
       this.save(map);
     }
 
@@ -565,63 +584,58 @@
   }
 
   /**
-   * localStorage, but it never throws and it never grows without bound.
+   * Persistence that never throws, and that does not trust any single store to
+   * actually persist.
    *
-   * A reader WebView may have storage disabled, may be in a private context, or
-   * may hand us a quota of nothing at all. In every one of those cases LoreLens
-   * has to keep working for the current session, so an in-memory map always
-   * backs the persistent store rather than replacing it.
+   * The important design point: this writes to *every* backend that works and
+   * reads back whichever one still has the data. Probing a store tells you it
+   * accepted a write a moment ago; it does not tell you the value will still be
+   * there in the next document, and in a WebView with no origin it very often
+   * is not. Writing to one store and hoping is how a setting silently
+   * evaporates between chapters.
    */
   class Store {
     constructor() {
       this.memory = new Map();
-      this.backend = Store.probeBackend();
-      this.backendName = Store.nameOf(this.backend);
-      log('storage backend:', this.backendName);
+      this.backends = Store.probeBackends();
+      this.backend = this.backends.length > 0 ? this.backends[0].store : null;
+      this.backendName = this.backends.length > 0
+        ? this.backends.map(function (entry) { return entry.name; }).join(' + ')
+        : 'memory only (nothing will be remembered)';
+      log('storage:', this.backendName);
     }
 
-    /** Which store we ended up on, for the diagnostics. */
-    static nameOf(backend) {
-      if (!backend) return 'memory only (nothing will be remembered)';
-      try {
-        if (backend === window.localStorage) return 'localStorage';
-        if (backend === window.sessionStorage) return 'sessionStorage (lost when the app closes)';
-      } catch (error) {
-        /* touching them can throw; fall through */
-      }
-      return 'window.name (fallback — the reader blocks normal storage)';
-    }
-
-    static probeBackend() {
+    /** Every store that accepts a write and gives it back. */
+    static probeBackends() {
       const candidates = [
-        function () { return window.localStorage; },
-        function () { return window.sessionStorage; },
-        function () { return new WindowNameBackend(); },
+        { name: 'localStorage', make: function () { return window.localStorage; } },
+        { name: 'sessionStorage', make: function () { return window.sessionStorage; } },
+        { name: 'window.name', make: function () { return new WindowNameBackend(); } },
       ];
 
-      for (const make of candidates) {
+      const working = [];
+      for (const candidate of candidates) {
         try {
-          const store = make();
+          const store = candidate.make();
           if (!store) continue;
           const key = STORAGE_PREFIX + 'probe';
-          store.setItem(key, '1');
+          store.setItem(key, 'ok');
           const readBack = store.getItem(key);
           store.removeItem(key);
-          if (readBack === '1') return store;
+          if (readBack === 'ok') working.push({ name: candidate.name, store: store });
         } catch (error) {
-          /* Blocked, absent, or full. Try the next one. */
+          /* Blocked, absent, or full. Try the next. */
         }
       }
-      return null;
+      return working;
     }
 
     /**
      * @returns the stored value, or null if absent or expired.
      *
      * The memory layer carries its own expiry rather than being a plain value
-     * cache. Without that, a time-to-live would only ever take effect after a
-     * reload — the in-memory copy would keep answering with stale data for as
-     * long as the reader stayed open, which for a reading session is hours.
+     * cache. Without that, a time-to-live would only take effect after a
+     * reload, and a reading session lasts hours.
      */
     read(key) {
       const cached = this.memory.get(key);
@@ -633,17 +647,29 @@
         return cached.value;
       }
 
-      if (!this.backend) return null;
+      /* Whichever store still has it wins, and if several do, the newest. */
+      let best = null;
+      for (const entry of this.backends) {
+        const record = Store.readFrom(entry.store, key);
+        if (!record) continue;
+        if (!best || (record.savedAt || 0) > (best.savedAt || 0)) best = record;
+      }
+      if (!best) return null;
+
+      if (best.expiresAt && Date.now() > best.expiresAt) {
+        this.remove(key);
+        return null;
+      }
+
+      this.memory.set(key, { value: best.value, expiresAt: best.expiresAt || 0 });
+      return best.value;
+    }
+
+    static readFrom(store, key) {
       try {
-        const raw = this.backend.getItem(STORAGE_PREFIX + key);
+        const raw = store.getItem(STORAGE_PREFIX + key);
         if (!raw) return null;
-        const record = JSON.parse(raw);
-        if (record.expiresAt && Date.now() > record.expiresAt) {
-          this.remove(key);
-          return null;
-        }
-        this.memory.set(key, { value: record.value, expiresAt: record.expiresAt || 0 });
-        return record.value;
+        return JSON.parse(raw);
       } catch (error) {
         return null;
       }
@@ -652,45 +678,48 @@
     write(key, value, ttlDays) {
       const expiresAt = ttlDays ? Date.now() + ttlDays * 86400000 : 0;
       this.memory.set(key, { value: value, expiresAt: expiresAt });
-      if (!this.backend) return;
-      const record = {
-        savedAt: Date.now(),
-        expiresAt: expiresAt,
-        value: value,
-      };
-      try {
-        this.backend.setItem(STORAGE_PREFIX + key, JSON.stringify(record));
-      } catch (error) {
-        /* Almost certainly the quota. Drop the oldest half of our own cached
-         * entries and try once more; if it still fails, memory carries the
-         * session and we simply re-fetch next time. */
-        if (this.evictOldest()) {
-          try {
-            this.backend.setItem(STORAGE_PREFIX + key, JSON.stringify(record));
-          } catch (retryError) {
-            log('storage write failed after eviction');
+
+      const encoded = JSON.stringify({ savedAt: Date.now(), expiresAt: expiresAt, value: value });
+      let wroteSomewhere = false;
+
+      for (const entry of this.backends) {
+        try {
+          entry.store.setItem(STORAGE_PREFIX + key, encoded);
+          wroteSomewhere = true;
+        } catch (error) {
+          /* Quota, or too large for this particular backend. Drop the oldest
+           * half of our own entries and try this one once more. */
+          if (this.evictOldest(entry.store)) {
+            try {
+              entry.store.setItem(STORAGE_PREFIX + key, encoded);
+              wroteSomewhere = true;
+            } catch (retryError) {
+              /* This backend cannot take it. Others may still. */
+            }
           }
         }
       }
+
+      if (!wroteSomewhere) log('nothing accepted a write for', key);
     }
 
     remove(key) {
       this.memory.delete(key);
-      if (!this.backend) return;
-      try {
-        this.backend.removeItem(STORAGE_PREFIX + key);
-      } catch (error) {
-        /* nothing useful to do */
+      for (const entry of this.backends) {
+        try {
+          entry.store.removeItem(STORAGE_PREFIX + key);
+        } catch (error) {
+          /* nothing useful to do */
+        }
       }
     }
 
     /** Only ever touches keys under our own prefix. */
-    ownKeys() {
-      if (!this.backend) return [];
+    ownKeys(store) {
       const keys = [];
       try {
-        for (let index = 0; index < this.backend.length; index += 1) {
-          const key = this.backend.key(index);
+        for (let index = 0; index < store.length; index += 1) {
+          const key = store.key(index);
           if (key && key.indexOf(STORAGE_PREFIX) === 0) keys.push(key);
         }
       } catch (error) {
@@ -699,25 +728,26 @@
       return keys;
     }
 
-    evictOldest() {
+    evictOldest(store) {
       const entries = [];
-      for (const fullKey of this.ownKeys()) {
+      for (const fullKey of this.ownKeys(store)) {
         if (fullKey.indexOf(STORAGE_PREFIX + 'settings') === 0) continue; // never evict settings
         try {
-          const record = JSON.parse(this.backend.getItem(fullKey));
+          const record = JSON.parse(store.getItem(fullKey));
           entries.push({ key: fullKey, savedAt: (record && record.savedAt) || 0 });
         } catch (error) {
           entries.push({ key: fullKey, savedAt: 0 });
         }
       }
       if (entries.length === 0) return false;
+
       entries.sort(function (left, right) {
         return left.savedAt - right.savedAt;
       });
       const doomed = entries.slice(0, Math.max(1, Math.floor(entries.length / 2)));
       for (const entry of doomed) {
         try {
-          this.backend.removeItem(entry.key);
+          store.removeItem(entry.key);
         } catch (error) {
           /* keep going */
         }
@@ -728,32 +758,41 @@
 
     clearCache() {
       let removed = 0;
-      for (const fullKey of this.ownKeys()) {
-        if (fullKey.indexOf(STORAGE_PREFIX + 'settings') === 0) continue;
-        try {
-          this.backend.removeItem(fullKey);
-          removed += 1;
-        } catch (error) {
-          /* keep going */
+      for (const entry of this.backends) {
+        for (const fullKey of this.ownKeys(entry.store)) {
+          if (fullKey.indexOf(STORAGE_PREFIX + 'settings') === 0) continue;
+          try {
+            entry.store.removeItem(fullKey);
+            removed += 1;
+          } catch (error) {
+            /* keep going */
+          }
         }
       }
+      /* Settings live in the memory layer too, and clearing the cache must not
+       * take them with it — that would drop the chosen wiki on the floor. */
+      const settings = this.memory.get('settings');
       this.memory.clear();
+      if (settings) this.memory.set('settings', settings);
       return removed;
     }
 
     /** Rough size of what we are occupying, for the settings panel. */
     describeUsage() {
       let bytes = 0;
-      let count = 0;
-      for (const fullKey of this.ownKeys()) {
-        try {
-          bytes += (this.backend.getItem(fullKey) || '').length;
-          count += 1;
-        } catch (error) {
-          /* keep going */
+      const seen = new Set();
+      for (const entry of this.backends) {
+        for (const fullKey of this.ownKeys(entry.store)) {
+          if (seen.has(fullKey)) continue;
+          seen.add(fullKey);
+          try {
+            bytes += (entry.store.getItem(fullKey) || '').length;
+          } catch (error) {
+            /* keep going */
+          }
         }
       }
-      return { count: count, kilobytes: Math.round(bytes / 1024) };
+      return { count: seen.size, kilobytes: Math.round(bytes / 1024) };
     }
   }
 
@@ -3142,6 +3181,15 @@
 
       '.lorelens-meta{margin:16px 0 0;font-size:11.5px;color:' + muted + ';',
       'text-align:center;line-height:1.6;}',
+
+      /* Diagnostics are read off the screen or photographed, so they have to be
+       * legible and selectable rather than merely present. */
+      '.lorelens-diagnostics{margin:12px 0 0;padding:12px;border-radius:10px;',
+      'font-family:ui-monospace,Menlo,Consolas,monospace;font-size:11px;',
+      'line-height:1.5;white-space:pre-wrap;word-break:break-word;',
+      'background:' + surfaceRaised + ';color:' + text + ';',
+      'border:1px solid ' + outline + ';',
+      '-webkit-user-select:text;user-select:text;}',
     ].join('');
   }
 
@@ -3636,7 +3684,7 @@
 
         Panel.footer([
           { action: 'clear-cache', label: 'Clear cache' },
-          { action: 'copy-diagnostics', label: 'Copy diagnostics' },
+          { action: 'show-diagnostics', label: 'Diagnostics' },
           { action: 'spacer' },
           { action: 'close', label: 'Done' },
         ]) +
@@ -3818,6 +3866,14 @@
         'wiki: ' + (this.wiki.subdomain || '(none)') + (this.wiki.disabled ? ' [disabled]' : ''),
         'highlight mode: ' + (highlighter ? highlighter.mode : '?'),
         'storage: ' + this.store.backendName,
+        /* If this stays at 1 no matter how many chapters you open, nothing is
+         * persisting, and every "it forgot my setting" symptom follows. */
+        'boot count: ' + (this.store.read('boot-count') || '?') +
+          '  (should climb by one per chapter)',
+        'origin: ' + (window.location ? window.location.origin : '?') +
+          '  (null means no storage will survive)',
+        'secure context: ' + (typeof window.isSecureContext === 'boolean' ? window.isSecureContext : '?'),
+        'clipboard API: ' + Boolean(navigator.clipboard),
         '',
         'features:',
         '  CSS.highlights: ' + (typeof window.CSS !== 'undefined' && !!window.CSS.highlights),
@@ -4492,6 +4548,7 @@
       this.currentTerm = '';
       this.observer = null;
       this.isScanning = false;
+      this.pendingRescan = false;
       this.scanStartedAt = 0;
     }
 
@@ -4505,6 +4562,7 @@
 
       this.settings.useNovel(this.context.novelKey);
       this.settings.advanceProgress(this.context.chapterNumber);
+      this.recordBoot();
 
       applyStyleSheet(this.context.palette, this.settings);
 
@@ -4556,8 +4614,29 @@
         return;
       }
 
-      const startScan = guard('app.afterSources', this.scan.bind(this));
-      Promise.all([this.resolveWiki(), this.loadLorepack()]).then(startScan);
+      /*
+       * Mark the chapter FIRST, and only then go looking for the wiki.
+       *
+       * These used to be the other way round: highlighting waited on
+       * Promise.all([resolveWiki(), loadLorepack()]). Finding names needs
+       * nothing but the text on the page, while finding the wiki means probing
+       * several candidate subdomains one after another, each of which can take
+       * the full request timeout before it fails. On a novel whose title
+       * matches no wiki — a fan work, say — that is a minute or more of a
+       * chapter with no marks in it, repeated on every chapter. It reads
+       * exactly like the tool being broken, and there is no reason for it:
+       * nothing about detecting a name depends on the network.
+       */
+      this.scan();
+
+      const self2 = this;
+      Promise.all([this.resolveWiki(), this.loadLorepack()]).then(
+        guard('app.afterSources', function () {
+          /* Now that we know the wiki, re-run so anything already cached is
+           * promoted from a guess to a confirmed name, and prefetch can start. */
+          self2.scan();
+        }),
+      );
     }
 
     /**
@@ -4720,6 +4799,23 @@
     }
 
     /**
+     * Count how many times LoreLens has started, and remember it.
+     *
+     * This is a direct test of the one question that has been guessed at
+     * repeatedly instead of measured: does anything written in one chapter
+     * survive into the next? Every chapter is a fresh document here, so the
+     * counter should climb. If it reads 1 forever, nothing is persisting and
+     * every symptom that looks like "it forgot my settings" follows from that.
+     * Cheaper to answer than to infer.
+     */
+    recordBoot() {
+      const previous = this.store.read('boot-count') || 0;
+      this.bootCount = previous + 1;
+      this.store.write('boot-count', this.bootCount, 0);
+      log('boot #' + this.bootCount + ' (was ' + previous + ')');
+    }
+
+    /**
      * Check periodically that the marks are still there, and redraw if not.
      *
      * A belt-and-braces measure, and worth the cost. The ways a reader can
@@ -4746,10 +4842,17 @@
     scan() {
       /* A scan that somehow never finished must not wedge the tool forever. */
       if (this.isScanning) {
-        if (Date.now() - this.scanStartedAt < 10000) return;
+        if (Date.now() - this.scanStartedAt < 10000) {
+          /* Do not drop the request — the caller wants the marks brought up to
+           * date, and silently ignoring that is how an upgrade pass goes
+           * missing after the wiki finally resolves. */
+          this.pendingRescan = true;
+          return;
+        }
         log('previous scan never finished; starting a new one');
       }
       this.isScanning = true;
+      this.pendingRescan = false;
       this.scanStartedAt = Date.now();
 
       const root = this.context.root;
@@ -4780,6 +4883,13 @@
       const self = this;
       this.highlighter.run(root, function () {
         self.isScanning = false;
+        if (self.pendingRescan) {
+          self.pendingRescan = false;
+          whenIdle(function () {
+            self.scan();
+          });
+          return;
+        }
         self.prefetch(candidates);
       });
     }
@@ -5092,38 +5202,75 @@
         );
         return;
       }
+      if (action === 'show-diagnostics') {
+        this.showDiagnostics();
+        return;
+      }
       if (action === 'copy-diagnostics') {
         this.copyDiagnostics();
       }
     }
 
+    /**
+     * Show the diagnostics on screen, as selectable text.
+     *
+     * This used to only offer to put them on the clipboard, which on the device
+     * that matters is not merely unreliable but impossible: LNReader loads the
+     * chapter with no origin, a document with no origin is not a secure
+     * context, and `navigator.clipboard` does not exist outside a secure
+     * context. So the button silently did nothing useful and fell back to
+     * printing to a console nobody on a phone can open — which meant that for
+     * every bug report, the one artefact that would have explained it was
+     * unreachable.
+     *
+     * On screen, it can always be read, selected, or photographed.
+     */
+    showDiagnostics() {
+      const text = this.settingsView.buildDiagnostics(this.highlighter);
+
+      this.panel.setContent(
+        '<div class="lorelens-head"><div class="lorelens-titles">' +
+          '<h2 class="lorelens-name">Diagnostics</h2>' +
+          '<p class="lorelens-native">Select it, or take a screenshot</p>' +
+          '</div></div>' +
+          '<pre class="lorelens-diagnostics">' + escapeHtml(text) + '</pre>' +
+          Panel.footer([
+            { action: 'copy-diagnostics', label: 'Try copying' },
+            { action: 'spacer' },
+            { action: 'settings', label: 'Back' },
+            { action: 'close', label: 'Close' },
+          ]),
+      );
+      this.panel.open();
+    }
+
+    /** Best-effort clipboard, for the platforms where it exists. */
     copyDiagnostics() {
       const text = this.settingsView.buildDiagnostics(this.highlighter);
       const self = this;
 
-      const done = function (ok) {
+      const report = function (ok) {
         self.panel.showMessage(
-          ok ? 'Copied' : 'Could not copy',
+          ok ? 'Copied' : 'Cannot copy here',
           ok
-            ? 'Diagnostics are on your clipboard. Paste them into a GitHub issue.'
-            : 'Your reader will not let scripts use the clipboard. The diagnostics are printed to the console instead.',
-          [{ action: 'settings', label: 'Back' }, { action: 'close', label: 'Close' }],
+            ? 'The diagnostics are on your clipboard.'
+            : 'Your reader does not allow clipboard access. Go back and screenshot the text instead.',
+          [{ action: 'show-diagnostics', label: 'Back' }, { action: 'close', label: 'Close' }],
         );
-        if (!ok && window.console) window.console.log(text);
       };
 
-      if (navigator.clipboard && navigator.clipboard.writeText) {
-        navigator.clipboard.writeText(text).then(
-          function () {
-            done(true);
-          },
-          function () {
-            done(false);
-          },
-        );
-      } else {
-        done(false);
+      try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          navigator.clipboard.writeText(text).then(
+            function () { report(true); },
+            function () { report(false); },
+          );
+          return;
+        }
+      } catch (error) {
+        /* fall through */
       }
+      report(false);
     }
 
     handleSettingChange(key) {
@@ -5253,10 +5400,15 @@
 
       this.observer = new MutationObserver(function (records) {
         for (const record of records) {
-          /* Ignore the mutations we caused ourselves. */
           const target = record.target;
+          /* Ignore the mutations we caused ourselves. */
           if (target && target.classList && target.classList.contains('lorelens-ui')) continue;
           if (target && target.closest && target.closest('.lorelens-panel')) continue;
+          /* And the ones text-to-speech causes as it walks the chapter — those
+           * are constant while it reads, and repainting on each would mean
+           * fighting the reader for the same nodes several times a minute. */
+          if (target && target.classList && target.classList.contains(TTS_CLASS)) continue;
+          if (target && target.closest && target.closest('.' + TTS_CLASS)) continue;
           repaint();
           return;
         }

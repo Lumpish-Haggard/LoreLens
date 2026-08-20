@@ -122,7 +122,7 @@
 
         Panel.footer([
           { action: 'clear-cache', label: 'Clear cache' },
-          { action: 'copy-diagnostics', label: 'Copy diagnostics' },
+          { action: 'show-diagnostics', label: 'Diagnostics' },
           { action: 'spacer' },
           { action: 'close', label: 'Done' },
         ]) +
@@ -304,6 +304,14 @@
         'wiki: ' + (this.wiki.subdomain || '(none)') + (this.wiki.disabled ? ' [disabled]' : ''),
         'highlight mode: ' + (highlighter ? highlighter.mode : '?'),
         'storage: ' + this.store.backendName,
+        /* If this stays at 1 no matter how many chapters you open, nothing is
+         * persisting, and every "it forgot my setting" symptom follows. */
+        'boot count: ' + (this.store.read('boot-count') || '?') +
+          '  (should climb by one per chapter)',
+        'origin: ' + (window.location ? window.location.origin : '?') +
+          '  (null means no storage will survive)',
+        'secure context: ' + (typeof window.isSecureContext === 'boolean' ? window.isSecureContext : '?'),
+        'clipboard API: ' + Boolean(navigator.clipboard),
         '',
         'features:',
         '  CSS.highlights: ' + (typeof window.CSS !== 'undefined' && !!window.CSS.highlights),

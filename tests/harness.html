@@ -393,6 +393,36 @@ function run() {
   is(store.read('unit-test-key'), null, 'a removed value reads as absent');
 
   ok(store.backendName && store.backendName.length > 0, 'the backend names itself for diagnostics');
+  ok(store.backends.length >= 1, 'at least one backend was found');
+
+  /*
+    The failure this guards against, which is the whole of bug 2: LNReader gives
+    the chapter WebView no baseUrl, so the document has no origin, and an
+    origin-scoped store can accept a write and then be empty in the next
+    document. Writing to one store and trusting it is how the chosen wiki
+    silently evaporates between chapters. So: write everywhere, read from
+    whichever still has it.
+  */
+  const survivor2 = new I.Store();
+  survivor2.write('unit-test-survives', 'still here', 0);
+
+  /* Simulate the next chapter: a fresh document, and localStorage empty. */
+  const localBefore = window.localStorage.getItem('lorelens:v2:unit-test-survives');
+  ok(localBefore !== null, 'the value did reach localStorage');
+  window.localStorage.removeItem('lorelens:v2:unit-test-survives');
+
+  const afterReload = new I.Store();
+  is(afterReload.read('unit-test-survives'), 'still here',
+    'a value survives localStorage being emptied, because another store also has it');
+  afterReload.remove('unit-test-survives');
+
+  /* And a cache clear must not take the settings with it. */
+  const keeper = new I.Store();
+  keeper.write('settings', { wiki: 'kept' }, 0);
+  keeper.write('entry:x:y', { name: 'droppable' }, 1);
+  keeper.clearCache();
+  is(keeper.read('settings').wiki, 'kept', 'clearing the cache keeps the settings');
+  is(keeper.read('entry:x:y'), null, 'clearing the cache drops cached entries');
 
   /*
     The fallback for readers whose WebView has no usable origin, where every
@@ -464,6 +494,24 @@ function run() {
   is(linkText, 'Gu Changge', 'text inside a link is untouched');
   is(chapterRoot.querySelector('code').textContent, 'Gu Changge', 'text inside code is untouched');
   is(chapterRoot.querySelector('a[href="#nowhere"]').children.length, 0, 'no element was inserted inside the link');
+
+  /*
+    Marking must not depend on the network in any way.
+
+    This is bug 1. Highlighting used to wait on Promise.all([resolveWiki(),
+    loadLorepack()]), and resolving a wiki means probing several candidate
+    subdomains one after another, each able to burn the full request timeout
+    before failing. On a novel whose title matches no wiki, that is a minute or
+    more of a chapter with no marks in it, on every chapter — indistinguishable
+    from the tool being broken. Nothing about finding a name needs a network.
+  */
+  const offlineIndex = new I.EntityIndex();
+  const offlineDetector = new I.NameDetector(app.settings);
+  for (const found of offlineDetector.detect(chapterRoot.innerText)) {
+    offlineIndex.add({ name: found.phrase, aliases: [], entity: null, confidence: I.CONFIDENCE.GUESSED });
+  }
+  ok(!offlineIndex.isEmpty, 'names are found with no wiki, no network and no cache');
+  ok(offlineIndex.buildMatcher() !== null, 'and a matcher can be built from them alone');
 
   /*
     Recovery. Marks are anchored to text nodes, so a reader that re-renders the

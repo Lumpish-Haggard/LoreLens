@@ -41,7 +41,22 @@
     '[contenteditable]',
     '[data-lorelens-skip]',
     '.lorelens-ui',
+    /* LNReader's own furniture, per its custom-JS documentation. None of it is
+     * prose, and marking a name inside the reader's toolbar would be absurd. */
+    '#reader-ui',
+    '#reader-footer-wrapper',
+    '#ToolWrapper',
+    '#ScrollBar',
+    '#TTS-Controller',
+    '.next-button',
   ].join(',');
+
+  /**
+   * The element LNReader gives the paragraph it is currently reading aloud.
+   * Mutations to it are text-to-speech doing its job, not the chapter changing,
+   * and repainting in response would fight the reader for the same nodes.
+   */
+  const TTS_CLASS = 'highlight';
 
   /** The Custom Highlight API registration name, and the DOM-fallback class. */
   const HIGHLIGHT_NAME = 'lorelens-term';
