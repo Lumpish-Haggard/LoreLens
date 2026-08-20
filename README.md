@@ -40,16 +40,17 @@ API key, no server, and nothing to set up.
 
 ## Install
 
-1. Download **[`dist/lorelens.js`](dist/lorelens.js)** and copy the whole file.
-2. In your reader, find the setting for custom reader JavaScript. In LNReader
-   this is under **Settings → Reader**, in the advanced section at the bottom.
-3. Paste it in, save, and reopen a chapter.
+1. Download **[`dist/lorelens.js`](dist/lorelens.js)** to your phone.
+2. In LNReader: **Settings → Reader → the gear icon at the bottom right →
+   the `{}` icon (last one) → the JS tab**.
+3. Tap **Import** and pick the file. Then **Save**, and reopen a chapter.
 
 That is the entire setup. LoreLens works out which wiki your novel uses on its
 own. If it guesses wrong, tap the small **L** button and tell it — you never
 need to edit the file.
 
-Longer version with screenshots: **[docs/INSTALL.md](docs/INSTALL.md)**.
+Step-by-step version, including what to do when it does not work:
+**[docs/INSTALL.md](docs/INSTALL.md)**.
 
 ## What it does
 
@@ -131,12 +132,10 @@ painting rather than assuming any particular theme variables. So it has a fair
 chance of working in any reader that will run a script in its reader view — and
 if it does not, the diagnostics in the settings panel will say why.
 
-> **A note on honesty:** the exact menu path for custom JS varies between
-> LNReader releases. If the wording in step 2 above does not match your version,
-> look for anything called Custom JS, Custom JavaScript, or Reader Scripts in
-> the reader settings, and please
-> [open an issue](../../issues/new?template=bug_report.yml) telling us what it
-> says so we can fix these instructions.
+> If the menu path in step 2 does not match your version of LNReader, please
+> [open an issue](../../issues/new?template=bug_report.yml) telling us what
+> yours says, and include your LNReader version — these instructions are
+> written against one release and the reader settings have moved before.
 
 ## Custom glossaries (optional)
 

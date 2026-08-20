@@ -13,32 +13,35 @@ That is all. No account, no API key, no computer.
 
 ## Step 1 — Get the file
 
-Open **[`dist/lorelens.js`](../dist/lorelens.js)** and copy all of it.
+Download **[`lorelens.js` from the latest release](../../releases/latest)** to
+your phone, or [straight from the repository](../dist/lorelens.js).
 
-On a phone the easiest route is the [latest release](../../releases/latest):
-download `lorelens.js`, open it with any text editor or file manager that can
-view text, select all, copy.
+Save it somewhere you can find again — your Downloads folder is fine. You do not
+need to open it.
 
-It is a large file. That is fine — you are pasting it, not typing it. It is
-unminified deliberately so that you, or anyone you send it to, can read what it
-does before running it.
+It is a large file. It is unminified deliberately, so that you, or anyone you
+pass it to, can read exactly what it does before running it.
 
-## Step 2 — Paste it into your reader
+## Step 2 — Load it into the reader
 
 In LNReader:
 
 1. Open **Settings**
 2. Go to **Reader**
-3. Scroll to the bottom, to the advanced section
-4. Find the field for custom **JS** (some versions call it Custom JavaScript, or
-   put it behind a "Custom CSS / JS" entry)
-5. Paste, and save
+3. Tap the **gear icon** at the bottom right
+4. Tap the **`{}`** icon — it is the last one
+5. Switch to the **JS** tab
+6. Tap **Import** and choose the file you downloaded
+7. **Save**
 
-> The exact wording and position of this setting has moved between LNReader
-> releases. If you cannot find it, look for anything mentioning JS, JavaScript,
-> or scripts inside the reader settings. If your version words it differently,
-> please [tell us](../../issues/new?template=bug_report.yml) so this page can be
-> corrected.
+There is a **Copy/Paste** option next to Import if you would rather paste the
+text. Import is the better choice: the file is large, and some text fields cut
+off long input without telling you, which produces a script that half-runs.
+
+> This is written against one release of LNReader, and the reader settings have
+> moved before. If yours looks different, please
+> [tell us](../../issues/new?template=bug_report.yml) — include your LNReader
+> version — and this page will be corrected.
 
 ## Step 3 — Open a chapter
 
@@ -84,15 +87,16 @@ earlier chapter will not suddenly re-hide things you have already seen.
 
 ## Updating later
 
-Replace the whole file with the new one, the same way. Your settings, your
-per-novel wiki choices and your cached entries all live in your reader's
-storage, not in the file, so an update does not disturb them.
+Download the new file and **Import** it over the old one, the same way. Your
+settings, your per-novel wiki choices and your cached entries all live in your
+reader's storage rather than in the file, so an update does not disturb them.
 
 ## Uninstalling
 
-Clear the custom JS field and save. That is the whole footprint — LoreLens adds
-nothing outside that field except its cache in your reader's local storage,
-which you can clear from the settings panel first if you want to be thorough.
+Go back to **Settings → Reader → gear icon → `{}` → JS**, clear the field, and
+save. That is the whole footprint — LoreLens adds nothing outside that field
+except its cache in your reader's local storage, which you can clear from the
+LoreLens settings panel first if you want to be thorough.
 
 ## If something did not work
 

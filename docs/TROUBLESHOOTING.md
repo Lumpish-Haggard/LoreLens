@@ -14,16 +14,17 @@ game.
 
 **The script did not run.** In order of likelihood:
 
-1. **You are still in the chapter you had open when you pasted it.** Custom JS
-   is applied when a chapter loads. Go back to the chapter list and open a
+1. **You are still in the chapter you had open when you installed it.** Custom
+   JS is applied when a chapter loads. Go back to the chapter list and open a
    chapter again.
-2. **It did not save.** Reopen the setting and check the text is actually still
-   there. Some versions need an explicit save or tick.
-3. **It was pasted into the CSS field, not the JS field.** Easy to do; they sit
-   next to each other.
-4. **The paste was truncated.** The file is large and some text fields silently
-   cut off long input. Scroll to the end of what you pasted — the last line
-   should be `})();`. If it is not, the paste is incomplete.
+2. **It did not save.** Go back to **Settings → Reader → gear icon → `{}` → JS**
+   and check the text is actually still there.
+3. **It went into the CSS tab, not the JS tab.** They sit next to each other in
+   the same panel, and CSS silently ignores JavaScript.
+4. **The paste was truncated.** The file is large and some text fields cut off
+   long input without saying so. Scroll to the end of what you pasted — the last
+   line should be `})();`. If it is not, use the **Import** button with the
+   downloaded file instead, which cannot truncate.
 
 ## Names are marked, but tapping does nothing
 

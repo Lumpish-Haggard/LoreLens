@@ -42,10 +42,13 @@ jobs:
           body: |
             ## Install
 
-            Download **`lorelens.js`** below, open it in any text editor, copy all
-            of it, and paste it into your reader's custom JavaScript setting.
+            Download **`lorelens.js`** below, then in LNReader go to
+            **Settings → Reader → the gear icon at the bottom right → the `{}`
+            icon (last one) → the JS tab**, tap **Import**, pick the file, and
+            **Save**. Reopen a chapter.
 
             Full instructions: [docs/INSTALL.md](https://github.com/${{ github.repository }}/blob/main/docs/INSTALL.md)
 
-            Already have an older version installed? Replace the whole thing.
-            Your settings live in the reader's storage and will survive the update.
+            Already have an older version? Import this one over it. Your
+            settings, per-novel wiki choices and cached entries live in the
+            reader's storage, not in the file, so they survive the update.
