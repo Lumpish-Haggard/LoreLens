@@ -19,9 +19,9 @@ jobs:
     name: dist is in sync with src
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
@@ -38,7 +38,7 @@ jobs:
           fi
           echo "dist/ is in sync."
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: lorelens-js
           path: dist/lorelens.js
@@ -48,9 +48,9 @@ jobs:
     name: Test suite (headless Chrome)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
@@ -64,9 +64,9 @@ jobs:
     name: Source constraints
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '20'
 
