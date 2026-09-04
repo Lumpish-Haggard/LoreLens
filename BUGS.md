@@ -158,6 +158,37 @@ LoreLens needs no change to benefit: `Store.probeBackends()` already tries
 `localStorage` first and only falls back to `window.name`, so the day a build
 with `baseUrl` ships, settings start persisting on their own.
 
+### Filed upstream, and being fixed
+
+[lnreader#1999](https://github.com/lnreader/lnreader/issues/1999) — open, with
+[PR #2012](https://github.com/lnreader/lnreader/pull/2012) implementing it.
+
+The implementation is more careful than what was proposed, and it changes what
+we should expect. It is fallback-only: chapters that already had a usable origin
+keep it, and only the cohorts that had none get a new one.
+
+| Chapter | Origin after the PR |
+| --- | --- |
+| Online, plugin declares a site | `plugin.site` — unchanged |
+| Downloaded | `https://lnreader.local/` |
+| Online, site-less plugin | `https://lnreader.local/` |
+
+**This reframes our own measurement.** `origin: null` was recorded while reading
+**downloaded** chapters. On an online chapter from a plugin with a site,
+`localStorage` may well already work today, before any of this lands. That is
+worth testing directly, because it means the storage failure is a property of
+how a chapter is being read rather than of the reader as a whole.
+
+**And it means storage is per-origin, not per-app.** A novel read online resolves
+to `plugin.site`; the downloaded copy of the same novel resolves to
+`lnreader.local`. Different buckets. So a wiki chosen while reading online will
+appear to vanish when reading the downloaded copy, and vice versa — not a
+regression, since the downloaded path had nothing at all before, but surprising.
+
+The consequence for us: **keep the `WIKIS` block.** It is the only setting that
+is origin-independent, so it stays the durable answer even once this lands.
+`localStorage` becomes a convenience on top, not a replacement.
+
 ---
 
 ## Bug 3 — the ladder shows too few, and wrong, levels
